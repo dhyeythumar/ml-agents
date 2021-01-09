@@ -4,17 +4,22 @@
 
 - [Decisions](#decisions)
 - [Observations and Sensors](#observations-and-sensors)
+  - [Generating Observations](#generating-observations)
+    - [Agent.CollectObservations()](#agentcollectobservations)
+    - [Observable Fields and Properties](#observable-fields-and-properties)
+    - [ISensor interface and SensorComponents](#isensor-interface-and-sensorcomponents)
   - [Vector Observations](#vector-observations)
     - [One-hot encoding categorical information](#one-hot-encoding-categorical-information)
     - [Normalization](#normalization)
+    - [Stacking](#stacking)
     - [Vector Observation Summary & Best Practices](#vector-observation-summary--best-practices)
   - [Visual Observations](#visual-observations)
     - [Visual Observation Summary & Best Practices](#visual-observation-summary--best-practices)
   - [Raycast Observations](#raycast-observations)
     - [RayCast Observation Summary & Best Practices](#raycast-observation-summary--best-practices)
-- [Actions](#actions)
-  - [Continuous Action Space](#continuous-action-space)
-  - [Discrete Action Space](#discrete-action-space)
+- [Actions and Actuators](#actions-and-actuators)
+  - [Continuous Actions](#continuous-actions)
+  - [Discrete Actions](#discrete-actions)
     - [Masking Discrete Actions](#masking-discrete-actions)
   - [Actions Summary & Best Practices](#actions-summary--best-practices)
 - [Rewards](#rewards)
@@ -47,32 +52,44 @@ method to make decisions which can allow you to control the Agent manually or
 write your own Policy. If the Agent has a `Model` file, its Policy will use the
 neural network `Model` to take decisions.
 
-When you create an Agent, you must extend the base Agent class. This includes
-implementing the following methods:
+When you create an Agent, you should usually extend the base Agent class. This
+includes implementing the following methods:
 
 - `Agent.OnEpisodeBegin()` — Called at the beginning of an Agent's episode,
-  including at the beginning of the simulation. The Ball3DAgent class uses this
-  function to reset the agent cube and ball to their starting positions. The
-  function randomizes the reset values so that the training generalizes to more
-  than a specific starting position and agent cube attitude.
-- `Agent.CollectObservations(VectorSensor sensor)` — Called every simulation
-  step. Responsible for collecting the Agent's observations of the environment.
-  Since the Behavior Parameters of the Agent are set with vector observation
-  space with a state size of 8, the `CollectObservations(VectorSensor sensor)`
-  must call `VectorSensor.AddObservation()` such that vector size adds up to 8.
+  including at the beginning of the simulation.
+- `Agent.CollectObservations(VectorSensor sensor)` — Called every step that the Agent
+  requests a decision. This is one possible way for collecting the Agent's
+  observations of the environment; see [Generating Observations](#generating-observations)
+  below for more options.
 - `Agent.OnActionReceived()` — Called every time the Agent receives an action to
-  take. Receives the action chosen by the Agent. The vector action spaces result
-  in a small change in the agent cube's rotation at each step. The
-  `OnActionReceived()` method assigns a reward to the Agent; in this example, an
-  Agent receives a small positive reward for each step it keeps the ball on the
-  agent cube's head and a larger, negative reward for dropping the ball. An
-  Agent's episode is also ended when it drops the ball so that it will reset
-  with a new ball for the next simulation step.
+  take. Receives the action chosen by the Agent. It is also common to assign a
+  reward in this method.
 - `Agent.Heuristic()` - When the `Behavior Type` is set to `Heuristic Only` in
   the Behavior Parameters of the Agent, the Agent will use the `Heuristic()`
   method to generate the actions of the Agent. As such, the `Heuristic()` method
-  returns an array of floats. In the case of the Ball 3D Agent, the
-  `Heuristic()` method converts the keyboard inputs into actions.
+  writes to the array of floats provided to the Heuristic method as argument.
+  __Note__: Do not create a new float array of action in the `Heuristic()` method,
+  as this will prevent writing floats to the original action array.
+
+As a concrete example, here is how the Ball3DAgent class implements these methods:
+
+- `Agent.OnEpisodeBegin()` — Resets the agent cube and ball to their starting
+  positions. The function randomizes the reset values so that the training
+  generalizes to more than a specific starting position and agent cube
+  orientation.
+- `Agent.CollectObservations(VectorSensor sensor)` — Adds information about the
+  orientation of the agent cube, the ball velocity, and the relative position
+  between the ball and the cube. Since the  `CollectObservations()`
+  method calls `VectorSensor.AddObservation()` such that vector size adds up to 8,
+  the Behavior Parameters of the Agent are set with vector observation space
+  with a state size of 8.
+- `Agent.OnActionReceived()` — The action results
+  in a small change in the agent cube's rotation at each step. In this example,
+  an Agent receives a small positive reward for each step it keeps the ball on the
+  agent cube's head and a larger, negative reward for dropping the ball. An
+  Agent's episode is also ended when it drops the ball so that it will reset
+  with a new ball for the next simulation step.
+- `Agent.Heuristic()` - Converts the keyboard inputs into actions.
 
 ## Decisions
 
@@ -88,29 +105,6 @@ when certain game or simulation events occur, such as in a turn-based game,
 should call `Agent.RequestDecision()` manually.
 
 ## Observations and Sensors
-
-To make informed decisions, an agent must first make observations of the state
-of the environment. The observations are collected by Sensors attached to the
-agent GameObject. By default, agents come with a `VectorSensor` which allows
-them to collect floating-point observations into a single array. There are
-additional sensor components which can be attached to the agent GameObject which
-collect their own observations, or modify other observations. These are:
-
-- `CameraSensorComponent` - Allows image from `Camera` to be used as
-  observation.
-- `RenderTextureSensorComponent` - Allows content of `RenderTexture` to be used
-  as observation.
-- `RayPerceptionSensorComponent` - Allows information from set of ray-casts to
-  be used as observation.
-
-### Vector Observations
-
-Vector observations are best used for aspects of the environment which are
-numerical and non-visual. The Policy class calls the
-`CollectObservations(VectorSensor sensor)` method of each Agent. Your
-implementation of this function must call `VectorSensor.AddObservation` to add
-vector observations.
-
 In order for an agent to learn, the observations should include all the
 information an agent needs to accomplish its task. Without sufficient and
 relevant information, an agent may learn poorly or may not learn at all. A
@@ -118,51 +112,139 @@ reasonable approach for determining what information should be included is to
 consider what you would need to calculate an analytical solution to the problem,
 or what you would expect a human to be able to use to solve the problem.
 
-For examples of various state observation functions, you can look at the
-[example environments](Learning-Environment-Examples.md) included in the
-ML-Agents SDK. For instance, the 3DBall example uses the rotation of the
-platform, the relative position of the ball, and the velocity of the ball as its
-state observation. As an experiment, you can remove the velocity components from
-the observation and retrain the 3DBall agent. While it will learn to balance the
-ball reasonably well, the performance of the agent without using velocity is
-noticeably worse.
+### Generating Observations
+ML-Agents provides multiple ways for an Agent to make observations:
+  1. Overriding the `Agent.CollectObservations()` method and passing the
+    observations to the provided `VectorSensor`.
+  1. Adding the `[Observable]` attribute to fields and properties on the Agent.
+  1. Implementing the `ISensor` interface, using a `SensorComponent` attached to
+  the Agent to create the `ISensor`.
 
-```csharp
-public GameObject ball;
-
-private List<float> state = new List<float>();
-public override void CollectObservations(VectorSensor sensor)
-{
-    sensor.AddObservation(gameObject.transform.rotation.z);
-    sensor.AddObservation(gameObject.transform.rotation.x);
-    sensor.AddObservation((ball.transform.position.x - gameObject.transform.position.x));
-    sensor.AddObservation((ball.transform.position.y - gameObject.transform.position.y));
-    sensor.AddObservation((ball.transform.position.z - gameObject.transform.position.z));
-    sensor.AddObservation(ball.transform.GetComponent<Rigidbody>().velocity.x);
-    sensor.AddObservation(ball.transform.GetComponent<Rigidbody>().velocity.y);
-    sensor.AddObservation(ball.transform.GetComponent<Rigidbody>().velocity.z);
-}
-```
-
-The feature vector must always contain the same number of elements and
-observations must always be in the same position within the list. If the number
-of observed entities in an environment can vary you can pad the feature vector
-with zeros for any missing entities in a specific observation or you can limit
-an agent's observations to a fixed subset. For example, instead of observing
-every enemy agent in an environment, you could only observe the closest five.
-
-When you set up an Agent's `Behavior Parameters` in the Unity Editor, set the
-following properties to use a vector observation:
-
-- **Space Size** — The state size must match the length of your feature vector.
-
-The observation feature vector is a list of floating point numbers, which means
-you must convert any other data types to a float or a list of floats.
+#### Agent.CollectObservations()
+Agent.CollectObservations() is best used for aspects of the environment which are
+numerical and non-visual. The Policy class calls the
+`CollectObservations(VectorSensor sensor)` method of each Agent. Your
+implementation of this function must call `VectorSensor.AddObservation` to add
+vector observations.
 
 The `VectorSensor.AddObservation` method provides a number of overloads for
 adding common types of data to your observation vector. You can add Integers and
 booleans directly to the observation vector, as well as some common Unity data
 types such as `Vector2`, `Vector3`, and `Quaternion`.
+
+For examples of various state observation functions, you can look at the
+[example environments](Learning-Environment-Examples.md) included in the
+ML-Agents SDK. For instance, the 3DBall example uses the rotation of the
+platform, the relative position of the ball, and the velocity of the ball as its
+state observation.
+
+```csharp
+public GameObject ball;
+
+public override void CollectObservations(VectorSensor sensor)
+{
+    // Orientation of the cube (2 floats)
+    sensor.AddObservation(gameObject.transform.rotation.z);
+    sensor.AddObservation(gameObject.transform.rotation.x);
+    // Relative position of the ball to the cube (3 floats)
+    sensor.AddObservation(ball.transform.position - gameObject.transform.position);
+    // Velocity of the ball (3 floats)
+    sensor.AddObservation(m_BallRb.velocity);
+    // 8 floats total
+}
+```
+
+As an experiment, you can remove the velocity components from
+the observation and retrain the 3DBall agent. While it will learn to balance the
+ball reasonably well, the performance of the agent without using velocity is
+noticeably worse.
+
+The observations passed to `VectorSensor.AddObservation()` must always contain
+the same number of elements must always be in the same order. If the number
+of observed entities in an environment can vary, you can pad the calls
+with zeros for any missing entities in a specific observation, or you can limit
+an agent's observations to a fixed subset. For example, instead of observing
+every enemy in an environment, you could only observe the closest five.
+
+Additionally, when you set up an Agent's `Behavior Parameters` in the Unity
+Editor, you must set the **Vector Observations > Space Size**
+to equal the number of floats that are written by `CollectObservations()`.
+
+#### Observable Fields and Properties
+Another approach is to define the relevant observations as fields or properties
+on your Agent class, and annotate them with an `ObservableAttribute`. For
+example, in the 3DBall example above, the rigid body velocity could be observed
+by adding a property to the Agent:
+```csharp
+using Unity.MLAgents.Sensors.Reflection;
+
+public class Ball3DAgent : Agent {
+
+    [Observable]
+    public Vector3 RigidBodyVelocity
+    {
+        get { return m_BallRb.velocity;  }
+    }
+}
+```
+`ObservableAttribute` currently supports most basic types (e.g. floats, ints,
+bools), as well as `Vector2`, `Vector3`, `Vector4`, `Quaternion`, and enums.
+
+The behavior of `ObservableAttribute`s are controlled by the "Observable Attribute
+Handling" in the Agent's `Behavior Parameters`. The possible values for this are:
+ * **Ignore** (default) - All ObservableAttributes on the Agent will be ignored.
+  If there are no ObservableAttributes on the Agent, this will result in the
+  fastest  initialization time.
+ * **Exclude Inherited** - Only members on the declared class will be examined;
+  members that are inherited are ignored. This is a reasonable tradeoff between
+  performance and flexibility.
+ * **Examine All** All members on the class will be examined. This can lead to
+  slower startup times.
+
+"Exclude Inherited" is generally sufficient, but if your Agent inherits from
+another Agent implementation that has Observable members, you will need to use
+"Examine All".
+
+Internally, ObservableAttribute uses reflection to determine which members of
+the Agent have ObservableAttributes, and also uses reflection to access the
+fields or invoke the properties at runtime. This may be slower than using
+CollectObservations or an ISensor, although this might not be enough to
+noticeably affect performance.
+
+**NOTE**: you do not need to adjust the Space Size in the Agent's
+`Behavior Parameters` when you add `[Observable]` fields or properties to an
+Agent, since their size can be computed before they are used.
+
+#### ISensor interface and SensorComponents
+The `ISensor` interface is generally intended for advanced users. The `Write()`
+method is used to actually generate the observation, but some other methods
+such as returning the shape of the observations must also be implemented.
+
+The `SensorComponent` abstract class is used to create the actual `ISensor` at
+runtime. It must be attached to the same `GameObject` as the `Agent`, or to a
+child `GameObject`.
+
+There are several SensorComponents provided in the API:
+- `CameraSensorComponent` - Allows image from `Camera` to be used as
+  observation.
+- `RenderTextureSensorComponent` - Allows content of `RenderTexture` to be used
+  as observation.
+- `RayPerceptionSensorComponent` - Allows information from set of ray-casts to
+  be used as observation.
+
+**NOTE**: you do not need to adjust the Space Size in the Agent's
+`Behavior Parameters` when using an ISensor SensorComponents.
+
+Internally, both `Agent.CollectObservations` and `[Observable]` attribute use an
+ISensors to write observations, although this is mostly abstracted from the user.
+
+### Vector Observations
+Both `Agent.CollectObservations()` and `ObservableAttribute`s produce vector
+observations, which are represented at lists of `float`s. `ISensor`s can
+produce both vector observations and visual observations, which are
+multi-dimensional arrays of floats.
+
+Below are some additional considerations when dealing with vector observations:
 
 #### One-hot encoding categorical information
 
@@ -174,11 +256,10 @@ observes that the current item is a Bow, you would add the elements: 0, 0, 1 to
 the feature vector. The following code example illustrates how to add.
 
 ```csharp
-enum CarriedItems { Sword, Shield, Bow, LastItem }
-private List<float> state = new List<float>();
+enum ItemType { Sword, Shield, Bow, LastItem }
 public override void CollectObservations(VectorSensor sensor)
 {
-    for (int ci = 0; ci < (int)CarriedItems.LastItem; ci++)
+    for (int ci = 0; ci < (int)ItemType.LastItem; ci++)
     {
         sensor.AddObservation((int)currentItem == ci ? 1.0f : 0.0f);
     }
@@ -190,14 +271,26 @@ a shortcut for _one-hot_ style observations. The following example is identical
 to the previous one.
 
 ```csharp
-enum CarriedItems { Sword, Shield, Bow, LastItem }
-const int NUM_ITEM_TYPES = (int)CarriedItems.LastItem;
+enum ItemType { Sword, Shield, Bow, LastItem }
+const int NUM_ITEM_TYPES = (int)ItemType.LastItem;
 
 public override void CollectObservations(VectorSensor sensor)
 {
     // The first argument is the selection index; the second is the
     // number of possibilities
     sensor.AddOneHotObservation((int)currentItem, NUM_ITEM_TYPES);
+}
+```
+
+`ObservableAttribute` has built-in support for enums. Note that you don't need
+the `LastItem` placeholder in this case:
+```csharp
+enum ItemType { Sword, Shield, Bow }
+
+public class HeroAgent : Agent
+{
+    [Observable]
+    ItemType m_CurrentItem;
 }
 ```
 
@@ -234,6 +327,40 @@ For angles that can be outside the range [0,360], you can either reduce the
 angle, or, if the number of turns is significant, increase the maximum value
 used in your normalization formula.
 
+#### Stacking
+Stacking refers to repeating observations from previous steps as part of a
+larger observation. For example, consider an Agent that generates these
+observations in four steps
+```
+step 1: [0.1]
+step 2: [0.2]
+step 3: [0.3]
+step 4: [0.4]
+```
+
+If we use a stack size of 3, the observations would instead be:
+```csharp
+step 1: [0.1, 0.0, 0.0]
+step 2: [0.2, 0.1, 0.0]
+step 3: [0.3, 0.2, 0.1]
+step 4: [0.4, 0.3, 0.2]
+```
+(The observations are padded with zeroes for the first `stackSize-1` steps).
+This is a simple way to give an Agent limited "memory" without the complexity
+of adding a recurrent neural network (RNN).
+
+The steps for enabling stacking depends on how you generate observations:
+* For Agent.CollectObservations(), set "Stacked Vectors" on the Agent's
+  `Behavior Parameters` to a value greater than 1.
+* For ObservableAttribute, set the `numStackedObservations` parameter in the
+  constructor, e.g. `[Observable(numStackedObservations: 2)]`.
+* For `ISensor`s, wrap them in a `StackingSensor` (which is also an `ISensor`).
+  Generally, this should happen in the `CreateSensor()` method of your
+  `SensorComponent`.
+
+Note that stacking currently only supports for vector observations; stacking
+for visual observations is not supported.
+
 #### Vector Observation Summary & Best Practices
 
 - Vector Observations should include all variables relevant for allowing the
@@ -244,7 +371,8 @@ used in your normalization formula.
   value in the agent GameObject's `Behavior Parameters` should be changed.
 - Categorical variables such as type of object (Sword, Shield, Bow) should be
   encoded in one-hot fashion (i.e. `3` -> `0, 0, 1`). This can be done
-  automatically using the `AddOneHotObservation()` method of the `VectorSensor`.
+  automatically using the `AddOneHotObservation()` method of the `VectorSensor`,
+  or using `[Observable]` on an enum field or property of the Agent.
 - In general, all inputs should be normalized to be in the range 0 to +1 (or -1
   to 1). For example, the `x` position information of an agent where the maximum
   possible value is `maxValue` should be recorded as
@@ -379,23 +507,13 @@ setting the State Size.
 - Use as few rays and tags as necessary to solve the problem in order to improve
   learning stability and agent performance.
 
-## Actions
+## Actions and Actuators
 
 An action is an instruction from the Policy that the agent carries out. The
-action is passed to the Agent as a parameter when the Academy invokes the
-agent's `OnActionReceived()` function. Actions for an agent can take one of two
-forms, either **Continuous** or **Discrete**.
-
-When you specify that the vector action space is **Continuous**, the action
-parameter passed to the Agent is an array of floating point numbers with length
-equal to the `Vector Action Space Size` property. When you specify a
-**Discrete** vector action space type, the action parameter is an array
-containing integers. Each integer is an index into a list or table of commands.
-In the **Discrete** vector action space type, the action parameter is an array
-of indices. The number of indices in the array is determined by the number of
-branches defined in the `Branches Size` property. Each branch corresponds to an
-action table, you can specify the size of each table by modifying the `Branches`
-property.
+action is passed to the an `IActionReceiver` (either an `Agent` or an `IActuator`)
+as the `ActionBuffers` parameter when the Academy invokes the
+`IActionReciever.OnActionReceived()` function.
+There are two types of actions supported: **Continuous** and **Discrete**.
 
 Neither the Policy nor the training algorithm know anything about what the
 action values themselves mean. The training algorithm simply tries different
@@ -404,65 +522,63 @@ over time and many training episodes. Thus, the only place actions are defined
 for an Agent is in the `OnActionReceived()` function.
 
 For example, if you designed an agent to move in two dimensions, you could use
-either continuous or the discrete vector actions. In the continuous case, you
-would set the vector action size to two (one for each dimension), and the
-agent's Policy would create an action with two floating point values. In the
+either continuous or the discrete actions. In the continuous case, you
+would set the action size to two (one for each dimension), and the
+agent's Policy would output an action with two floating point values. In the
 discrete case, you would use one Branch with a size of four (one for each
 direction), and the Policy would create an action array containing a single
 element with a value ranging from zero to three. Alternatively, you could create
 two branches of size two (one for horizontal movement and one for vertical
-movement), and the Policy would create an action array containing two elements
-with values ranging from zero to one.
+movement), and the Policy would output an action array containing two elements
+with values ranging from zero to one. You could alternatively use a combination of continuous
+and discrete actions e.g., using one continuous action for horizontal movement
+and a discrete branch of size two for the vertical movement.
 
 Note that when you are programming actions for an agent, it is often helpful to
 test your action logic using the `Heuristic()` method of the Agent, which lets
 you map keyboard commands to actions.
 
-The [3DBall](Learning-Environment-Examples.md#3dball-3d-balance-ball) and
-[Area](Learning-Environment-Examples.md#push-block) example environments are set
-up to use either the continuous or the discrete vector action spaces.
+### Continuous Actions
 
-### Continuous Action Space
-
-When an Agent uses a Policy set to the **Continuous** vector action space, the
-action parameter passed to the Agent's `OnActionReceived()` function is an array
-with length equal to the `Vector Action Space Size` property value. The
+When an Agent's Policy has **Continuous** actions, the
+`ActionBuffers.ContinuousActions` passed to the Agent's `OnActionReceived()` function
+is an array with length equal to the `Continuous Action Size` property value. The
 individual values in the array have whatever meanings that you ascribe to them.
 If you assign an element in the array as the speed of an Agent, for example, the
 training process learns to control the speed of the Agent through this
 parameter.
 
-The [Reacher example](Learning-Environment-Examples.md#reacher) defines a
-continuous action space with four control values.
+The [Reacher example](Learning-Environment-Examples.md#reacher) uses
+continuous actions with four control values.
 
 ![reacher](images/reacher.png)
 
 These control values are applied as torques to the bodies making up the arm:
 
 ```csharp
-public override void OnActionReceived(float[] act)
-{
-    float torque_x = Mathf.Clamp(act[0], -1, 1) * 100f;
-    float torque_z = Mathf.Clamp(act[1], -1, 1) * 100f;
-    rbA.AddTorque(new Vector3(torque_x, 0f, torque_z));
+    public override void OnActionReceived(ActionBuffers actionBuffers)
+    {
+        var torqueX = Mathf.Clamp(actionBuffers.ContinuousActions[0], -1f, 1f) * 150f;
+        var torqueZ = Mathf.Clamp(actionBuffers.ContinuousActions[1], -1f, 1f) * 150f;
+        m_RbA.AddTorque(new Vector3(torqueX, 0f, torqueZ));
 
-    torque_x = Mathf.Clamp(act[2], -1, 1) * 100f;
-    torque_z = Mathf.Clamp(act[3], -1, 1) * 100f;
-    rbB.AddTorque(new Vector3(torque_x, 0f, torque_z));
-}
+        torqueX = Mathf.Clamp(actionBuffers.ContinuousActions[2], -1f, 1f) * 150f;
+        torqueZ = Mathf.Clamp(actionBuffers.ContinuousActions[3], -1f, 1f) * 150f;
+        m_RbB.AddTorque(new Vector3(torqueX, 0f, torqueZ));
+    }
 ```
 
 By default the output from our provided PPO algorithm pre-clamps the values of
-`vectorAction` into the [-1, 1] range. It is a best practice to manually clip
+`ActionBuffers.ContinuousActions` into the [-1, 1] range. It is a best practice to manually clip
 these as well, if you plan to use a 3rd party algorithm with your environment.
 As shown above, you can scale the control values as needed after clamping them.
 
-### Discrete Action Space
+### Discrete Actions
 
-When an Agent uses a **Discrete** vector action space, the action parameter
-passed to the Agent's `OnActionReceived()` function is an array containing
-indices. With the discrete vector action space, `Branches` is an array of
-integers, each value corresponds to the number of possibilities for each branch.
+When an Agent's Policy uses **discrete** actions, the
+`ActionBuffers.DiscreteActions` passed to the Agent's `OnActionReceived()` function
+is an array of integers with length equal to `Discrete Branch Size`. When defining the discrete actions, `Branches`
+is an array of integers, each value corresponds to the number of possibilities for each branch.
 
 For example, if we wanted an Agent that can move in a plane and jump, we could
 define two branches (one for motion and one for jumping) because we want our
@@ -473,9 +589,9 @@ and the second one to have 2 possible actions (don't jump, jump). The
 
 ```csharp
 // Get the action index for movement
-int movement = Mathf.FloorToInt(act[0]);
+int movement = actionBuffers.DiscreteActions[0];
 // Get the action index for jumping
-int jump = Mathf.FloorToInt(act[1]);
+int jump = actionBuffers.DiscreteActions[1];
 
 // Look up the index in the movement action list:
 if (movement == 1) { directionX = -1; }
@@ -491,10 +607,6 @@ gameObject.GetComponent<Rigidbody>().AddForce(
         directionX * 40f, directionY * 300f, directionZ * 40f));
 ```
 
-Note that the above code example is a simplified extract from the AreaAgent
-class, which provides alternate implementations for both the discrete and the
-continuous action spaces.
-
 #### Masking Discrete Actions
 
 When using Discrete Actions, it is possible to specify that some actions are
@@ -502,12 +614,13 @@ impossible for the next decision. When the Agent is controlled by a neural
 network, the Agent will be unable to perform the specified action. Note that
 when the Agent is controlled by its Heuristic, the Agent will still be able to
 decide to perform the masked action. In order to mask an action, override the
-`Agent.CollectDiscreteActionMasks()` virtual method, and call
-`DiscreteActionMasker.SetMask()` in it:
+`Agent.WriteDiscreteActionMask()` virtual method, and call
+`WriteMask()` on the provided `IDiscreteActionMask`:
 
 ```csharp
-public override void CollectDiscreteActionMasks(DiscreteActionMasker actionMasker){
-    actionMasker.SetMask(branch, actionIndices)
+public override void WriteDiscreteActionMask(IDiscreteActionMask actionMask)
+{
+    actionMasker.WriteMask(branch, actionIndices)
 }
 ```
 
@@ -516,7 +629,7 @@ Where:
 - `branch` is the index (starting at 0) of the branch on which you want to mask
   the action
 - `actionIndices` is a list of `int` corresponding to the indices of the actions
-  that the Agent cannot perform.
+  that the Agent **cannot** perform.
 
 For example, if you have an Agent with 2 branches and on the first branch
 (branch 0) there are 4 possible actions : _"do nothing"_, _"jump"_, _"shoot"_
@@ -525,26 +638,49 @@ nothing"_ or _"change weapon"_ for his next decision (since action index 1 and 2
 are masked)
 
 ```csharp
-SetMask(0, new int[2]{1,2})
+WriteMask(0, new int[2]{1,2})
 ```
 
 Notes:
 
-- You can call `SetMask` multiple times if you want to put masks on multiple
+- You can call `WriteMask` multiple times if you want to put masks on multiple
   branches.
 - You cannot mask all the actions of a branch.
 - You cannot mask actions in continuous control.
 
+
+### IActuator interface and ActuatorComponents
+The Actuator API allows users to abstract behavior out of Agents and in to
+components (similar to the ISensor API).  The `IActuator` interface and `Agent`
+class both implement the `IActionReceiver` interface to allow for backward compatibility
+with the current `Agent.OnActionReceived` and `Agent.CollectDiscreteActionMasks` APIs.
+This means you will not have to change your code until you decide to use the `IActuator` API.
+
+Like the `ISensor` interface, the `IActuator` interface is intended for advanced users.
+
+The `ActuatorComponent` abstract class is used to create the actual `IActuator` at
+runtime. It must be attached to the same `GameObject` as the `Agent`, or to a
+child `GameObject`.  Actuators and all of their data structures are initialized
+during `Agent.Initialize`.  This was done to prevent an unexpected allocations at runtime.
+
+You can find an example of an `IActuator` implementation in the `Basic` example scene.
+**NOTE**: you do not need to adjust the Actions in the Agent's
+`Behavior Parameters` when using an `IActuator` and `ActuatorComponents`.
+
+Internally, `Agent.OnActionReceived` uses an `IActuator` to send actions to the Agent,
+although this is mostly abstracted from the user.
+
+
 ### Actions Summary & Best Practices
 
-- Actions can either use `Discrete` or `Continuous` spaces.
-- When using `Discrete` it is possible to assign multiple action branches, and
-  to mask certain actions.
-- In general, smaller action spaces will make for easier learning.
-- Be sure to set the Vector Action's Space Size to the number of used Vector
-  Actions, and not greater, as doing the latter can interfere with the
+- Agents can use `Discrete` and/or `Continuous` actions.
+- Discrete actions can have multiple action branches, and it's possible to mask
+  certain actions so that they won't be taken.
+- In general, fewer actions will make for easier learning.
+- Be sure to set the Continuous Action Size and Discrete Branch Size to the desired
+  number for each type of action, and not greater, as doing the latter can interfere with the
   efficiency of the training process.
-- When using continuous control, action values should be clipped to an
+- Continuous action values should be clipped to an
   appropriate range. The provided PPO model automatically clips these values
   between -1 and 1, but third party training systems may not do so.
 
@@ -591,7 +727,7 @@ if (hitObjects.Where(col => col.gameObject.tag == "goal").ToArray().Length == 1)
     AddReward(1.0f);
     EndEpisode();
 }
-if (hitObjects.Where(col => col.gameObject.tag == "pit").ToArray().Length == 1)
+else if (hitObjects.Where(col => col.gameObject.tag == "pit").ToArray().Length == 1)
 {
     AddReward(-1f);
     EndEpisode();
@@ -616,8 +752,8 @@ if (gameObject.transform.position.y < 0.0f ||
     Mathf.Abs(gameObject.transform.position.x - area.transform.position.x) > 8f ||
     Mathf.Abs(gameObject.transform.position.z + 5 - area.transform.position.z) > 8)
 {
-    EndEpisode();
     AddReward(-1f);
+    EndEpisode();
 }
 ```
 
@@ -683,13 +819,12 @@ be called independently of the `Max Step` property.
       be stacked and used collectively for decision making. This results in the
       effective size of the vector observation being passed to the Policy being:
       _Space Size_ x _Stacked Vectors_.
-  - `Vector Action`
-    - `Space Type` - Corresponds to whether action vector contains a single
-      integer (Discrete) or a series of real-valued floats (Continuous).
-    - `Space Size` (Continuous) - Length of action vector.
-    - `Branches` (Discrete) - An array of integers, defines multiple concurrent
-      discrete actions. The values in the `Branches` array correspond to the
-      number of possible discrete values for each action branch.
+  - `Actions`
+    - `Continuous Actions` - The number of concurrent continuous actions that
+     the Agent can take.
+    - `Discrete Branches` - An array of integers, defines multiple concurrent
+      discrete actions. The values in the `Discrete Branches` array correspond
+      to the number of possible discrete values for each action branch.
   - `Model` - The neural network model used for inference (obtained after
     training)
   - `Inference Device` - Whether to use CPU or GPU to run the model during
@@ -750,15 +885,18 @@ will be recorded from the agent.
 <p align="center">
   <img src="images/demo_component.png"
        alt="Demonstration Recorder"
-       width="450" border="10" />
+       width="650" border="10" />
 </p>
 
 When `Record` is checked, a demonstration will be created whenever the scene is
 played from the Editor. Depending on the complexity of the task, anywhere from a
 few minutes or a few hours of demonstration data may be necessary to be useful
-for imitation learning. When you have recorded enough data, end the Editor play
-session. A `.demo` file will be created in the `Assets/Demonstrations` folder
-(by default). This file contains the demonstrations. Clicking on the file will
+for imitation learning. To specify an exact number of steps you want to record
+use the `Num Steps To Record` field and the editor will end your play session
+automatically once that many steps are recorded. If you set `Num Steps To Record`
+to `0` then recording will continue until you manually end the play session. Once
+the play session ends a `.demo` file will be created in the `Assets/Demonstrations`
+folder (by default). This file contains the demonstrations. Clicking on the file will
 provide metadata about the demonstration in the inspector.
 
 <p align="center">
@@ -767,4 +905,5 @@ provide metadata about the demonstration in the inspector.
        width="375" border="10" />
 </p>
 
-You can then specify the path to this file in your training configurations.
+You can then specify the path to this file in your
+[training configurations](Training-Configuration-File.md#behavioral-cloning).

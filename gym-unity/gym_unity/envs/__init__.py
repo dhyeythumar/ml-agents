@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Tuple, Union
 import gym
 from gym import error, spaces
 
-from mlagents_envs.base_env import BaseEnv
+from mlagents_envs.base_env import ActionTuple, BaseEnv
 from mlagents_envs.base_env import DecisionSteps, TerminalSteps
 from mlagents_envs import logging_util
 
@@ -102,9 +102,10 @@ class UnityToGymWrapper(gym.Env):
         self._previous_decision_step = decision_steps
 
         # Set action spaces
-        if self.group_spec.is_action_discrete():
-            branches = self.group_spec.discrete_action_branches
-            if self.group_spec.action_shape == 1:
+        if self.group_spec.action_spec.is_discrete():
+            self.action_size = self.group_spec.action_spec.discrete_size
+            branches = self.group_spec.action_spec.discrete_branches
+            if self.group_spec.action_spec.discrete_size == 1:
                 self._action_space = spaces.Discrete(branches[0])
             else:
                 if flatten_branched:
@@ -113,14 +114,21 @@ class UnityToGymWrapper(gym.Env):
                 else:
                     self._action_space = spaces.MultiDiscrete(branches)
 
-        else:
+        elif self.group_spec.action_spec.is_continuous():
             if flatten_branched:
                 logger.warning(
                     "The environment has a non-discrete action space. It will "
                     "not be flattened."
                 )
-            high = np.array([1] * self.group_spec.action_shape)
+
+            self.action_size = self.group_spec.action_spec.continuous_size
+            high = np.array([1] * self.group_spec.action_spec.continuous_size)
             self._action_space = spaces.Box(-high, high, dtype=np.float32)
+        else:
+            raise UnityGymException(
+                "The gym wrapper does not provide explicit support for both discrete "
+                "and continuous actions."
+            )
 
         # Set observations space
         list_spaces: List[gym.Space] = []
@@ -170,9 +178,14 @@ class UnityToGymWrapper(gym.Env):
             # Translate action into list
             action = self._flattener.lookup_action(action)
 
-        spec = self.group_spec
-        action = np.array(action).reshape((1, spec.action_size))
-        self._env.set_actions(self.name, action)
+        action = np.array(action).reshape((1, self.action_size))
+
+        action_tuple = ActionTuple()
+        if self.group_spec.action_spec.is_continuous():
+            action_tuple.add_continuous(action)
+        else:
+            action_tuple.add_discrete(action)
+        self._env.set_actions(self.name, action_tuple)
 
         self._env.step()
         decision_step, terminal_step = self._env.get_steps(self.name)
@@ -216,16 +229,16 @@ class UnityToGymWrapper(gym.Env):
 
     def _get_n_vis_obs(self) -> int:
         result = 0
-        for shape in self.group_spec.observation_shapes:
-            if len(shape) == 3:
+        for sen_spec in self.group_spec.sensor_specs:
+            if len(sen_spec.shape) == 3:
                 result += 1
         return result
 
     def _get_vis_obs_shape(self) -> List[Tuple]:
         result: List[Tuple] = []
-        for shape in self.group_spec.observation_shapes:
-            if len(shape) == 3:
-                result.append(shape)
+        for sen_spec in self.group_spec.sensor_specs:
+            if len(sen_spec.shape) == 3:
+                result.append(sen_spec.shape)
         return result
 
     def _get_vis_obs_list(
@@ -248,9 +261,9 @@ class UnityToGymWrapper(gym.Env):
 
     def _get_vec_obs_size(self) -> int:
         result = 0
-        for shape in self.group_spec.observation_shapes:
-            if len(shape) == 1:
-                result += shape[0]
+        for sen_spec in self.group_spec.sensor_specs:
+            if len(sen_spec.shape) == 1:
+                result += sen_spec.shape[0]
         return result
 
     def render(self, mode="rgb_array"):

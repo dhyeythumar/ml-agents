@@ -1,6 +1,7 @@
-from typing import Dict, NamedTuple, List, Any, Optional, Callable, Set, Tuple
+from typing import Dict, NamedTuple, List, Any, Optional, Callable, Set
 import cloudpickle
 import enum
+import time
 
 from mlagents_envs.environment import UnityEnvironment
 from mlagents_envs.exception import (
@@ -12,7 +13,7 @@ from mlagents_envs.exception import (
 from multiprocessing import Process, Pipe, Queue
 from multiprocessing.connection import Connection
 from queue import Empty as EmptyQueueException
-from mlagents_envs.base_env import BaseEnv, BehaviorName
+from mlagents_envs.base_env import BaseEnv, BehaviorName, BehaviorSpec
 from mlagents_envs import logging_util
 from mlagents.trainers.env_manager import EnvManager, EnvironmentStep, AllStepResult
 from mlagents_envs.timers import (
@@ -22,7 +23,7 @@ from mlagents_envs.timers import (
     reset_timers,
     get_timer_root,
 )
-from mlagents.trainers.brain import BrainParameters
+from mlagents.trainers.settings import ParameterRandomizationSettings
 from mlagents.trainers.action_info import ActionInfo
 from mlagents_envs.side_channel.environment_parameters_channel import (
     EnvironmentParametersChannel,
@@ -33,22 +34,23 @@ from mlagents_envs.side_channel.engine_configuration_channel import (
 )
 from mlagents_envs.side_channel.stats_side_channel import (
     StatsSideChannel,
-    StatsAggregationMethod,
+    EnvironmentStats,
 )
 from mlagents_envs.side_channel.side_channel import SideChannel
-from mlagents.trainers.brain_conversion_utils import behavior_spec_to_brain_parameters
 
 
 logger = logging_util.get_logger(__name__)
+WORKER_SHUTDOWN_TIMEOUT_S = 10
 
 
 class EnvironmentCommand(enum.Enum):
     STEP = 1
-    EXTERNAL_BRAINS = 2
-    GET_PROPERTIES = 3
+    BEHAVIOR_SPECS = 2
+    ENVIRONMENT_PARAMETERS = 3
     RESET = 4
     CLOSE = 5
     ENV_EXITED = 6
+    CLOSED = 7
 
 
 class EnvironmentRequest(NamedTuple):
@@ -65,7 +67,7 @@ class EnvironmentResponse(NamedTuple):
 class StepResponse(NamedTuple):
     all_step_result: AllStepResult
     timer_root: Optional[TimerNode]
-    environment_stats: Dict[str, Tuple[float, StatsAggregationMethod]]
+    environment_stats: EnvironmentStats
 
 
 class UnityEnvWorker:
@@ -76,6 +78,7 @@ class UnityEnvWorker:
         self.previous_step: EnvironmentStep = EnvironmentStep.empty(worker_id)
         self.previous_all_action_info: Dict[str, ActionInfo] = {}
         self.waiting = False
+        self.closed = False
 
     def send(self, cmd: EnvironmentCommand, payload: Any = None) -> None:
         try:
@@ -94,7 +97,7 @@ class UnityEnvWorker:
         except (BrokenPipeError, EOFError):
             raise UnityCommunicationException("UnityEnvironment worker: recv failed.")
 
-    def close(self):
+    def request_close(self):
         try:
             self.conn.send(EnvironmentRequest(EnvironmentCommand.CLOSE))
         except (BrokenPipeError, EOFError):
@@ -102,8 +105,6 @@ class UnityEnvWorker:
                 f"UnityEnvWorker {self.worker_id} got exception trying to close."
             )
             pass
-        logger.debug(f"UnityEnvWorker {self.worker_id} joining process.")
-        self.process.join()
 
 
 def worker(
@@ -135,14 +136,6 @@ def worker(
             all_step_result[brain_name] = env.get_steps(brain_name)
         return all_step_result
 
-    def external_brains():
-        result = {}
-        for behavior_name, behavior_specs in env.behavior_specs.items():
-            result[behavior_name] = behavior_spec_to_brain_parameters(
-                behavior_name, behavior_specs
-            )
-        return result
-
     try:
         env = env_factory(
             worker_id, [env_parameters, engine_configuration_channel, stats_channel]
@@ -152,8 +145,8 @@ def worker(
             if req.cmd == EnvironmentCommand.STEP:
                 all_action_info = req.payload
                 for brain_name, action_info in all_action_info.items():
-                    if len(action_info.action) != 0:
-                        env.set_actions(brain_name, action_info.action)
+                    if len(action_info.agent_ids) > 0:
+                        env.set_actions(brain_name, action_info.env_action)
                 env.step()
                 all_step_result = _generate_all_results()
                 # The timers in this process are independent from all the processes and the "main" process
@@ -171,11 +164,13 @@ def worker(
                     )
                 )
                 reset_timers()
-            elif req.cmd == EnvironmentCommand.EXTERNAL_BRAINS:
-                _send_response(EnvironmentCommand.EXTERNAL_BRAINS, external_brains())
-            elif req.cmd == EnvironmentCommand.RESET:
+            elif req.cmd == EnvironmentCommand.BEHAVIOR_SPECS:
+                _send_response(EnvironmentCommand.BEHAVIOR_SPECS, env.behavior_specs)
+            elif req.cmd == EnvironmentCommand.ENVIRONMENT_PARAMETERS:
                 for k, v in req.payload.items():
-                    env_parameters.set_float_parameter(k, v)
+                    if isinstance(v, ParameterRandomizationSettings):
+                        v.apply(k, env_parameters)
+            elif req.cmd == EnvironmentCommand.RESET:
                 env.reset()
                 all_step_result = _generate_all_results()
                 _send_response(EnvironmentCommand.RESET, all_step_result)
@@ -193,17 +188,22 @@ def worker(
             EnvironmentResponse(EnvironmentCommand.ENV_EXITED, worker_id, ex)
         )
         _send_response(EnvironmentCommand.ENV_EXITED, ex)
+    except Exception as ex:
+        logger.error(
+            f"UnityEnvironment worker {worker_id}: environment raised an unexpected exception."
+        )
+        step_queue.put(
+            EnvironmentResponse(EnvironmentCommand.ENV_EXITED, worker_id, ex)
+        )
+        _send_response(EnvironmentCommand.ENV_EXITED, ex)
     finally:
-        # If this worker has put an item in the step queue that hasn't been processed by the EnvManager, the process
-        # will hang until the item is processed. We avoid this behavior by using Queue.cancel_join_thread()
-        # See https://docs.python.org/3/library/multiprocessing.html#multiprocessing.Queue.cancel_join_thread for
-        # more info.
         logger.debug(f"UnityEnvironment worker {worker_id} closing.")
-        step_queue.cancel_join_thread()
-        step_queue.close()
         if env is not None:
             env.close()
         logger.debug(f"UnityEnvironment worker {worker_id} done.")
+        parent_conn.close()
+        step_queue.put(EnvironmentResponse(EnvironmentCommand.CLOSED, worker_id, None))
+        step_queue.close()
 
 
 class SubprocessEnvManager(EnvManager):
@@ -216,12 +216,14 @@ class SubprocessEnvManager(EnvManager):
         super().__init__()
         self.env_workers: List[UnityEnvWorker] = []
         self.step_queue: Queue = Queue()
+        self.workers_alive = 0
         for worker_idx in range(n_env):
             self.env_workers.append(
                 self.create_worker(
                     worker_idx, self.step_queue, env_factory, engine_configuration
                 )
             )
+            self.workers_alive += 1
 
     @staticmethod
     def create_worker(
@@ -287,6 +289,8 @@ class SubprocessEnvManager(EnvManager):
             if not self.step_queue.empty():
                 step = self.step_queue.get_nowait()
                 self.env_workers[step.worker_id].waiting = False
+        # Send config to environment
+        self.set_env_parameters(config)
         # First enqueue reset commands for all workers so that they reset in parallel
         for ew in self.env_workers:
             ew.send(EnvironmentCommand.RESET, config)
@@ -295,17 +299,47 @@ class SubprocessEnvManager(EnvManager):
             ew.previous_step = EnvironmentStep(ew.recv().payload, ew.worker_id, {}, {})
         return list(map(lambda ew: ew.previous_step, self.env_workers))
 
+    def set_env_parameters(self, config: Dict = None) -> None:
+        """
+        Sends environment parameter settings to C# via the
+        EnvironmentParametersSidehannel for each worker.
+        :param config: Dict of environment parameter keys and values
+        """
+        for ew in self.env_workers:
+            ew.send(EnvironmentCommand.ENVIRONMENT_PARAMETERS, config)
+
     @property
-    def external_brains(self) -> Dict[BehaviorName, BrainParameters]:
-        self.env_workers[0].send(EnvironmentCommand.EXTERNAL_BRAINS)
+    def training_behaviors(self) -> Dict[BehaviorName, BehaviorSpec]:
+        self.env_workers[0].send(EnvironmentCommand.BEHAVIOR_SPECS)
         return self.env_workers[0].recv().payload
 
     def close(self) -> None:
         logger.debug("SubprocessEnvManager closing.")
-        self.step_queue.close()
-        self.step_queue.join_thread()
         for env_worker in self.env_workers:
-            env_worker.close()
+            env_worker.request_close()
+        # Pull messages out of the queue until every worker has CLOSED or we time out.
+        deadline = time.time() + WORKER_SHUTDOWN_TIMEOUT_S
+        while self.workers_alive > 0 and time.time() < deadline:
+            try:
+                step: EnvironmentResponse = self.step_queue.get_nowait()
+                env_worker = self.env_workers[step.worker_id]
+                if step.cmd == EnvironmentCommand.CLOSED and not env_worker.closed:
+                    env_worker.closed = True
+                    self.workers_alive -= 1
+                # Discard all other messages.
+            except EmptyQueueException:
+                pass
+        self.step_queue.close()
+        # Sanity check to kill zombie workers and report an issue if they occur.
+        if self.workers_alive > 0:
+            logger.error("SubprocessEnvManager had workers that didn't signal shutdown")
+            for env_worker in self.env_workers:
+                if not env_worker.closed and env_worker.process.is_alive():
+                    env_worker.process.terminate()
+                    logger.error(
+                        "A SubprocessEnvManager worker did not shut down correctly so it was forcefully terminated."
+                    )
+        self.step_queue.join_thread()
 
     def _postprocess_steps(
         self, env_steps: List[EnvironmentResponse]

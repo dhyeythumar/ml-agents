@@ -36,7 +36,7 @@ you would like to contribute environments, please see our
   - +1.0 for arriving at optimal state.
 - Behavior Parameters:
   - Vector Observation space: One variable corresponding to current state.
-  - Vector Action space: (Discrete) Two possible actions (Move left, move
+  - Actions: 1 discrete action branch with 3 actions (Move left, do nothing, move
     right).
   - Visual Observations: None
 - Float Properties: None
@@ -58,9 +58,10 @@ you would like to contribute environments, please see our
     cube, and position and velocity of ball.
   - Vector Observation space (Hard Version): 5 variables corresponding to
     rotation of the agent cube and position of ball.
-  - Vector Action space: (Continuous) Size of 2, with one value corresponding to
+  - Actions: 2 continuous actions, with one value corresponding to
     X-rotation, and the other to Z-rotation.
-  - Visual Observations: None.
+  - Visual Observations: Third-person view from the upper-front of the agent. Use
+    `Visual3DBall` scene.
 - Float Properties: Three
   - scale: Specifies the scale of the ball in the 3 dimensions (equal across the
     three dimensions)
@@ -93,8 +94,8 @@ you would like to contribute environments, please see our
   - -1.0 if the agent navigates to an obstacle (episode ends).
 - Behavior Parameters:
   - Vector Observation space: None
-  - Vector Action space: (Discrete) Size of 4, corresponding to movement in
-    cardinal directions. Note that for this environment,
+  - Actions: 1 discrete action branch with 5 actions, corresponding to movement in
+    cardinal directions or not moving. Note that for this environment,
     [action masking](Learning-Environment-Design-Agents.md#masking-discrete-actions)
     is turned on by default (this option can be toggled using the `Mask Actions`
     checkbox within the `trueAgent` GameObject). The trained model file provided
@@ -122,7 +123,7 @@ you would like to contribute environments, please see our
 - Behavior Parameters:
   - Vector Observation space: 9 variables corresponding to position, velocity
     and orientation of ball and racket.
-  - Vector Action space: (Continuous) Size of 3, corresponding to movement
+  - Actions: 3 continuous actions, corresponding to movement
     toward net or away from net, jumping and rotation.
   - Visual Observations: None
 - Float Properties: Three
@@ -150,8 +151,8 @@ you would like to contribute environments, please see our
   - Vector Observation space: (Continuous) 70 variables corresponding to 14
     ray-casts each detecting one of three possible objects (wall, goal, or
     block).
-  - Vector Action space: (Discrete) Size of 6, corresponding to turn clockwise
-    and counterclockwise and move along four different face directions.
+  - Actions: 1 discrete action branch with 7 actions, corresponding to turn clockwise
+    and counterclockwise, move along four different face directions, or do nothing.
   - Visual Observations (Optional): One first-person camera. Use
     `VisualPushBlock` scene. **The visual observation version of this
     environment does not train with the provided default training parameters.**
@@ -193,7 +194,7 @@ you would like to contribute environments, please see our
   - Vector Observation space: Size of 74, corresponding to 14 ray casts each
     detecting 4 possible objects. plus the global position of the agent and
     whether or not the agent is grounded.
-  - Vector Action space: (Discrete) 4 Branches:
+  - Actions: 4 discrete action branches:
     - Forward Motion (3 possible actions: Forward, Backwards, No Action)
     - Rotation (3 possible actions: Rotate Left, Rotate Right, No Action)
     - Side Motion (3 possible actions: Left, Right, No Action)
@@ -214,7 +215,7 @@ you would like to contribute environments, please see our
 - Behavior Parameters:
   - Vector Observation space: 26 variables corresponding to position, rotation,
     velocity, and angular velocities of the two arm rigid bodies.
-  - Vector Action space: (Continuous) Size of 4, corresponding to torque
+  - Actions: 4 continuous actions, corresponding to torque
     applicable to two joints.
   - Visual Observations: None.
 - Float Properties: Five
@@ -248,22 +249,29 @@ you would like to contribute environments, please see our
 
 - Set-up: A creature with 4 arms and 4 forearms.
 - Goal: The agents must move its body toward the goal direction without falling.
-  - `CrawlerStaticTarget` - Goal direction is always forward.
   - `CrawlerDynamicTarget`- Goal direction is randomized.
-- Agents: The environment contains 3 agent with same Behavior Parameters.
+  - `CrawlerDynamicVariableSpeed`- Goal direction and walking speed are randomized.
+  - `CrawlerStaticTarget` - Goal direction is always forward.
+  - `CrawlerStaticVariableSpeed`- Goal direction is always forward. Walking speed is randomized
+- Agents: The environment contains 10 agents with same Behavior Parameters.
 - Agent Reward Function (independent):
-  - +0.03 times body velocity in the goal direction.
-  - +0.01 times body direction alignment with goal direction.
+  The reward function is now geometric meaning the reward each step is a product
+  of all the rewards instead of a sum, this helps the agent try to maximize all
+  rewards instead of the easiest rewards.
+  - Body velocity matches goal velocity. (normalized between (0,1))
+  - Head direction alignment with goal direction. (normalized between (0,1))
 - Behavior Parameters:
-  - Vector Observation space: 117 variables corresponding to position, rotation,
+  - Vector Observation space: 172 variables corresponding to position, rotation,
     velocity, and angular velocities of each limb plus the acceleration and
     angular acceleration of the body.
-  - Vector Action space: (Continuous) Size of 20, corresponding to target
+  - Actions: 20 continuous actions, corresponding to target
     rotations for joints.
   - Visual Observations: None
 - Float Properties: None
-- Benchmark Mean Reward for `CrawlerStaticTarget`: 2000
-- Benchmark Mean Reward for `CrawlerDynamicTarget`: 400
+- Benchmark Mean Reward for `CrawlerDynamicTarget`: 2000
+- Benchmark Mean Reward for `CrawlerDynamicVariableSpeed`: 3000
+- Benchmark Mean Reward for `CrawlerStaticTarget`: 4000
+- Benchmark Mean Reward for `CrawlerStaticVariableSpeed`: 4000
 
 ## Worm
 
@@ -275,18 +283,21 @@ you would like to contribute environments, please see our
   - `WormDynamicTarget`- Goal direction is randomized.
 - Agents: The environment contains 10 agents with same Behavior Parameters.
 - Agent Reward Function (independent):
-  - +0.01 times body velocity in the goal direction.
-  - +0.01 times body direction alignment with goal direction.
+  The reward function is now geometric meaning the reward each step is a product
+  of all the rewards instead of a sum, this helps the agent try to maximize all
+  rewards instead of the easiest rewards.
+  - Body velocity matches goal velocity. (normalized between (0,1))
+  - Body direction alignment with goal direction. (normalized between (0,1))
 - Behavior Parameters:
-  - Vector Observation space: 57 variables corresponding to position, rotation,
+  - Vector Observation space: 64 variables corresponding to position, rotation,
     velocity, and angular velocities of each limb plus the acceleration and
     angular acceleration of the body.
-  - Vector Action space: (Continuous) Size of 9, corresponding to target
+  - Actions: 9 continuous actions, corresponding to target
     rotations for joints.
   - Visual Observations: None
 - Float Properties: None
-- Benchmark Mean Reward for `WormStaticTarget`: 200
-- Benchmark Mean Reward for `WormDynamicTarget`: 150
+- Benchmark Mean Reward for `WormStaticTarget`: 1200
+- Benchmark Mean Reward for `WormDynamicTarget`: 800
 
 ## Food Collector
 
@@ -304,14 +315,14 @@ you would like to contribute environments, please see our
     agent is frozen and/or shot its laser (2), plus ray-based perception of
     objects around agent's forward direction (49; 7 raycast angles with 7
     measurements for each).
-  - Vector Action space: (Discrete) 4 Branches:
-    - Forward Motion (3 possible actions: Forward, Backwards, No Action)
-    - Side Motion (3 possible actions: Left, Right, No Action)
-    - Rotation (3 possible actions: Rotate Left, Rotate Right, No Action)
-    - Laser (2 possible actions: Laser, No Action)
-  - Visual Observations (Optional): First-person camera per-agent. Use
-    `VisualFoodCollector` scene. **The visual observation version of this
-    environment does not train with the provided default training parameters.**
+  - Actions:
+    - 3 continuous actions correspond to Forward Motion, Side Motion and Rotation
+    - 1 discrete acion branch for Laser with 2 possible actions corresponding to
+      Shoot Laser or No Action
+  - Visual Observations (Optional): First-person camera per-agent, plus one vector
+    flag representing the frozen state of the agent. This scene uses a combination
+    of vector and visual observations and the training will not succeed without
+    the frozen vector flag. Use `VisualFoodCollector` scene.
 - Float Properties: Two
   - laser_length: Length of the laser used by the agent
     - Default: 1
@@ -340,7 +351,7 @@ you would like to contribute environments, please see our
 - Behavior Parameters:
   - Vector Observation space: 30 corresponding to local ray-casts detecting
     objects, goals, and walls.
-  - Vector Action space: (Discrete) 1 Branch, 4 actions corresponding to agent
+  - Actions: 1 discrete action Branch, with 4 actions corresponding to agent
     rotation and forward/backward movement.
   - Visual Observations (Optional): First-person view for the agent. Use
     `VisualHallway` scene. **The visual observation version of this environment
@@ -365,7 +376,7 @@ you would like to contribute environments, please see our
 - Behavior Parameters:
   - Vector Observation space: 6 corresponding to local position of agent and
     green cube.
-  - Vector Action space: (Continuous) 3 corresponding to agent force applied for
+  - Actions: 3 continuous actions corresponding to agent force applied for
     the jump.
   - Visual Observations: None
 - Float Properties: Two
@@ -396,7 +407,7 @@ you would like to contribute environments, please see our
     degrees each detecting 6 possible object types, along with the object's
     distance. The forward ray-casts contribute 264 state dimensions and backward
     72 state dimensions over three observation stacks.
-  - Vector Action space: (Discrete) Three branched actions corresponding to
+  - Actions: 3 discrete branched actions corresponding to
     forward, backward, sideways movement, as well as rotation.
   - Visual Observations: None
 - Float Properties: Two
@@ -432,12 +443,12 @@ you would like to contribute environments, please see our
     degrees each detecting 5 possible object types, along with the object's
     distance. The forward ray-casts contribute 231 state dimensions and backward
     63 state dimensions over three observation stacks.
-  - Striker Vector Action space: (Discrete) Three branched actions corresponding
+  - Striker Actions: 3 discrete branched actions corresponding
     to forward, backward, sideways movement, as well as rotation.
   - Goalie Vector Observation space: 738 corresponding to 41 ray-casts
     distributed over 360 degrees each detecting 4 possible object types, along
     with the object's distance and 3 observation stacks.
-  - Goalie Vector Action space: (Discrete) Three branched actions corresponding
+  - Goalie Actions: 3 discrete branched actions corresponding
     to forward, backward, sideways movement, as well as rotation.
   - Visual Observations: None
 - Float Properties: Two
@@ -455,23 +466,28 @@ you would like to contribute environments, please see our
 
 ![Walker](images/walker.png)
 
-- Set-up: Physics-based Humanoids agents with 26 degrees of freedom. These DOFs
+- Set-up: Physics-based Humanoid agents with 26 degrees of freedom. These DOFs
   correspond to articulation of the following body-parts: hips, chest, spine,
   head, thighs, shins, feet, arms, forearms and hands.
-- Goal: The agents must move its body toward the goal direction as quickly as
-  possible without falling.
-- Agents: The environment contains 11 independent agents with same Behavior
+- Goal: The agents must move its body toward the goal direction without falling.
+  - `WalkerDynamic`- Goal direction is randomized.
+  - `WalkerDynamicVariableSpeed`- Goal direction and walking speed are randomized.
+  - `WalkerStatic` - Goal direction is always forward.
+  - `WalkerStaticVariableSpeed` - Goal direction is always forward. Walking
+     speed is randomized
+- Agents: The environment contains 10 independent agents with same Behavior
   Parameters.
 - Agent Reward Function (independent):
-  - +0.03 times body velocity in the goal direction.
-  - +0.01 times head y position.
-  - +0.01 times body direction alignment with goal direction.
-  - -0.01 times head velocity difference from body velocity.
+  The reward function is now geometric meaning the reward each step is a product
+  of all the rewards instead of a sum, this helps the agent try to maximize all
+  rewards instead of the easiest rewards.
+  - Body velocity matches goal velocity. (normalized between (0,1))
+  - Head direction alignment with goal direction. (normalized between (0,1))
 - Behavior Parameters:
-  - Vector Observation space: 215 variables corresponding to position, rotation,
+  - Vector Observation space: 243 variables corresponding to position, rotation,
     velocity, and angular velocities of each limb, along with goal direction.
-  - Vector Action space: (Continuous) Size of 39, corresponding to target
-    rotations applicable to the joints.
+  - Actions: 39 continuous actions, corresponding to target
+    rotations and strength applicable to the joints.
   - Visual Observations: None
 - Float Properties: Four
   - gravity: Magnitude of gravity
@@ -479,7 +495,7 @@ you would like to contribute environments, please see our
     - Recommended Minimum:
     - Recommended Maximum:
   - hip_mass: Mass of the hip component of the walker
-    - Default: 15
+    - Default: 8
     - Recommended Minimum: 7
     - Recommended Maximum: 28
   - chest_mass: Mass of the chest component of the walker
@@ -487,10 +503,15 @@ you would like to contribute environments, please see our
     - Recommended Minimum: 3
     - Recommended Maximum: 20
   - spine_mass: Mass of the spine component of the walker
-    - Default: 10
+    - Default: 8
     - Recommended Minimum: 3
     - Recommended Maximum: 20
-- Benchmark Mean Reward: 1000
+- Benchmark Mean Reward for `WalkerDynamic`: 2500
+- Benchmark Mean Reward for `WalkerDynamicVariableSpeed`: 2500
+- Benchmark Mean Reward for `WalkerStatic`: 3500
+- Benchmark Mean Reward for `WalkerStaticVariableSpeed`: 3500
+
+
 
 ## Pyramids
 
@@ -507,10 +528,30 @@ you would like to contribute environments, please see our
   - Vector Observation space: 148 corresponding to local ray-casts detecting
     switch, bricks, golden brick, and walls, plus variable indicating switch
     state.
-  - Vector Action space: (Discrete) 4 corresponding to agent rotation and
+  - Actions: 1 discrete action branch, with 4 actions corresponding to agent rotation and
     forward/backward movement.
   - Visual Observations (Optional): First-person camera per-agent. Us
     `VisualPyramids` scene. **The visual observation version of this environment
     does not train with the provided default training parameters.**
 - Float Properties: None
 - Benchmark Mean Reward: 1.75
+
+## Match 3
+![Match 3](images/match3.png)
+
+- Set-up: Simple match-3 game. Matched pieces are removed, and remaining pieces
+drop down. New pieces are spawned randomly at the top, with a chance of being
+"special".
+- Goal: Maximize score from matching pieces.
+- Agents: The environment contains several independent Agents.
+- Agent Reward Function (independent):
+  - .01 for each normal piece cleared. Special pieces are worth 2x or 3x.
+- Behavior Parameters:
+  - None
+  - Observations and actions are defined with a sensor and actuator respectively.
+- Float Properties: None
+- Benchmark Mean Reward:
+  - 37.2 for visual observations
+  - 37.6 for vector observations
+  - 34.2 for simple heuristic (pick a random valid move)
+  - 37.0 for greedy heuristic (pick the highest-scoring valid move)

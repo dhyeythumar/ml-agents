@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Unity.Barracuda;
 using Unity.MLAgents.Inference;
+using UnityEngine;
 
 namespace Unity.MLAgents.Sensors
 {
@@ -36,6 +37,10 @@ namespace Unity.MLAgents.Sensors
             if (shape.Length == 1)
             {
                 m_TensorShape = new TensorShape(m_Batch, shape[0]);
+            }
+            else if (shape.Length == 2)
+            {
+                m_TensorShape = new TensorShape(new[] { m_Batch, 1, shape[0], shape[1] });
             }
             else
             {
@@ -78,7 +83,7 @@ namespace Unity.MLAgents.Sensors
         }
 
         /// <summary>
-        /// 3D write access at the specified height, width, and channel. Only usable with a TensorProxy target.
+        /// 3D write access at the specified height, width, and channel.
         /// </summary>
         /// <param name="h"></param>
         /// <param name="w"></param>
@@ -137,6 +142,128 @@ namespace Unity.MLAgents.Sensors
                     index++;
                 }
             }
+        }
+
+        /// <summary>
+        /// Write the Vector3 components.
+        /// </summary>
+        /// <param name="vec">The Vector3 to be written.</param>
+        /// <param name="writeOffset">Optional write offset.</param>
+        public void Add(Vector3 vec, int writeOffset = 0)
+        {
+            if (m_Data != null)
+            {
+                m_Data[m_Offset + writeOffset + 0] = vec.x;
+                m_Data[m_Offset + writeOffset + 1] = vec.y;
+                m_Data[m_Offset + writeOffset + 2] = vec.z;
+            }
+            else
+            {
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 0] = vec.x;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 1] = vec.y;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 2] = vec.z;
+            }
+        }
+
+        /// <summary>
+        /// Write the Vector4 components.
+        /// </summary>
+        /// <param name="vec">The Vector4 to be written.</param>
+        /// <param name="writeOffset">Optional write offset.</param>
+        public void Add(Vector4 vec, int writeOffset = 0)
+        {
+            if (m_Data != null)
+            {
+                m_Data[m_Offset + writeOffset + 0] = vec.x;
+                m_Data[m_Offset + writeOffset + 1] = vec.y;
+                m_Data[m_Offset + writeOffset + 2] = vec.z;
+                m_Data[m_Offset + writeOffset + 3] = vec.w;
+            }
+            else
+            {
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 0] = vec.x;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 1] = vec.y;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 2] = vec.z;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 3] = vec.w;
+            }
+        }
+
+        /// <summary>
+        /// Write the Quaternion components.
+        /// </summary>
+        /// <param name="quat">The Quaternion to be written.</param>
+        /// <param name="writeOffset">Optional write offset.</param>
+
+        public void Add(Quaternion quat, int writeOffset = 0)
+        {
+            if (m_Data != null)
+            {
+                m_Data[m_Offset + writeOffset + 0] = quat.x;
+                m_Data[m_Offset + writeOffset + 1] = quat.y;
+                m_Data[m_Offset + writeOffset + 2] = quat.z;
+                m_Data[m_Offset + writeOffset + 3] = quat.w;
+            }
+            else
+            {
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 0] = quat.x;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 1] = quat.y;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 2] = quat.z;
+                m_Proxy.data[m_Batch, m_Offset + writeOffset + 3] = quat.w;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Provides extension methods for the ObservationWriter.
+    /// </summary>
+    public static class ObservationWriterExtension
+    {
+        /// <summary>
+        /// Writes a Texture2D into a ObservationWriter.
+        /// </summary>
+        /// <param name="obsWriter">
+        /// Writer to fill with Texture data.
+        /// </param>
+        /// <param name="texture">
+        /// The texture to be put into the tensor.
+        /// </param>
+        /// <param name="grayScale">
+        /// If set to <c>true</c> the textures will be converted to grayscale before
+        /// being stored in the tensor.
+        /// </param>
+        /// <returns>The number of floats written</returns>
+        public static int WriteTexture(
+            this ObservationWriter obsWriter,
+            Texture2D texture,
+            bool grayScale)
+        {
+            var width = texture.width;
+            var height = texture.height;
+
+            var texturePixels = texture.GetPixels32();
+            // During training, we convert from Texture to PNG before sending to the trainer, which has the
+            // effect of flipping the image. We need another flip here at inference time to match this.
+            for (var h = height - 1; h >= 0; h--)
+            {
+                for (var w = 0; w < width; w++)
+                {
+                    var currentPixel = texturePixels[(height - h - 1) * width + w];
+                    if (grayScale)
+                    {
+                        obsWriter[h, w, 0] =
+                            (currentPixel.r + currentPixel.g + currentPixel.b) / 3f / 255.0f;
+                    }
+                    else
+                    {
+                        // For Color32, the r, g and b values are between 0 and 255.
+                        obsWriter[h, w, 0] = currentPixel.r / 255.0f;
+                        obsWriter[h, w, 1] = currentPixel.g / 255.0f;
+                        obsWriter[h, w, 2] = currentPixel.b / 255.0f;
+                    }
+                }
+            }
+
+            return height * width * (grayScale ? 1 : 3);
         }
     }
 }

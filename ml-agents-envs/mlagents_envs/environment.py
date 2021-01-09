@@ -18,6 +18,7 @@ from mlagents_envs.base_env import (
     DecisionSteps,
     TerminalSteps,
     BehaviorSpec,
+    ActionTuple,
     BehaviorName,
     AgentId,
     BehaviorMapping,
@@ -56,7 +57,12 @@ class UnityEnvironment(BaseEnv):
     # We follow semantic versioning on the communication version, so existing
     # functionality will work as long the major versions match.
     # This should be changed whenever a change is made to the communication protocol.
-    API_VERSION = "1.0.0"
+    # Revision history:
+    #  * 1.0.0 - initial version
+    #  * 1.1.0 - support concatenated PNGs for compressed observations.
+    #  * 1.2.0 - support compression mapping for stacked compressed observations.
+    #  * 1.3.0 - support action spaces with both continuous and discrete actions.
+    API_VERSION = "1.3.0"
 
     # Default port that the editor listens on. If an environment executable
     # isn't specified, this port will be used.
@@ -94,16 +100,13 @@ class UnityEnvironment(BaseEnv):
         elif unity_communicator_version.version[0] != api_version.version[0]:
             # Major versions mismatch.
             return False
-        elif unity_communicator_version.version[1] != api_version.version[1]:
-            # Non-beta minor versions mismatch.  Log a warning but allow execution to continue.
-            logger.warning(
-                f"WARNING: The communication API versions between Unity and python differ at the minor version level. "
-                f"Python API: {python_api_version}, Unity API: {unity_communicator_version}.\n"
-                f"This means that some features may not work unless you upgrade the package with the lower version."
-                f"Please find the versions that work best together from our release page.\n"
-                "https://github.com/Unity-Technologies/ml-agents/releases"
-            )
         else:
+            # Major versions match, so either:
+            # 1) The versions are identical, in which case there's no compatibility issues
+            # 2) The Unity version is newer, in which case we'll warn or fail on the Unity side if trying to use
+            #    unsupported features
+            # 3) The trainer version is newer, in which case new trainer features might be available but unused by C#
+            # In any of the cases, there's no reason to warn about mismatch here.
             logger.info(
                 f"Connected to Unity environment with package version {unity_package_version} "
                 f"and communication version {unity_com_ver}"
@@ -114,6 +117,9 @@ class UnityEnvironment(BaseEnv):
     def _get_capabilities_proto() -> UnityRLCapabilitiesProto:
         capabilities = UnityRLCapabilitiesProto()
         capabilities.baseRLCapabilities = True
+        capabilities.concatenatedPngObservations = True
+        capabilities.compressedChannelMapping = True
+        capabilities.hybridActions = True
         return capabilities
 
     @staticmethod
@@ -230,7 +236,7 @@ class UnityEnvironment(BaseEnv):
 
         self._env_state: Dict[str, Tuple[DecisionSteps, TerminalSteps]] = {}
         self._env_specs: Dict[str, BehaviorSpec] = {}
-        self._env_actions: Dict[str, np.ndarray] = {}
+        self._env_actions: Dict[str, ActionTuple] = {}
         self._is_first_message = True
         self._update_behavior_specs(aca_output)
 
@@ -308,7 +314,7 @@ class UnityEnvironment(BaseEnv):
                     n_agents = len(self._env_state[group_name][0])
                 self._env_actions[group_name] = self._env_specs[
                     group_name
-                ].create_empty_action(n_agents)
+                ].action_spec.empty_action(n_agents)
         step_input = self._generate_step_input(self._env_actions)
         with hierarchical_timer("communicator.exchange"):
             outputs = self._communicator.exchange(step_input)
@@ -326,50 +332,30 @@ class UnityEnvironment(BaseEnv):
     def _assert_behavior_exists(self, behavior_name: str) -> None:
         if behavior_name not in self._env_specs:
             raise UnityActionException(
-                "The group {0} does not correspond to an existing agent group "
-                "in the environment".format(behavior_name)
+                f"The group {behavior_name} does not correspond to an existing "
+                f"agent group in the environment"
             )
 
-    def set_actions(self, behavior_name: BehaviorName, action: np.ndarray) -> None:
+    def set_actions(self, behavior_name: BehaviorName, action: ActionTuple) -> None:
         self._assert_behavior_exists(behavior_name)
         if behavior_name not in self._env_state:
             return
-        spec = self._env_specs[behavior_name]
-        expected_type = np.float32 if spec.is_action_continuous() else np.int32
-        expected_shape = (len(self._env_state[behavior_name][0]), spec.action_size)
-        if action.shape != expected_shape:
-            raise UnityActionException(
-                "The behavior {0} needs an input of dimension {1} for "
-                "(<number of agents>, <action size>) but received input of "
-                "dimension {2}".format(behavior_name, expected_shape, action.shape)
-            )
-        if action.dtype != expected_type:
-            action = action.astype(expected_type)
+        action_spec = self._env_specs[behavior_name].action_spec
+        num_agents = len(self._env_state[behavior_name][0])
+        action = action_spec._validate_action(action, num_agents, behavior_name)
         self._env_actions[behavior_name] = action
 
     def set_action_for_agent(
-        self, behavior_name: BehaviorName, agent_id: AgentId, action: np.ndarray
+        self, behavior_name: BehaviorName, agent_id: AgentId, action: ActionTuple
     ) -> None:
         self._assert_behavior_exists(behavior_name)
         if behavior_name not in self._env_state:
             return
-        spec = self._env_specs[behavior_name]
-        expected_shape = (spec.action_size,)
-        if action.shape != expected_shape:
-            raise UnityActionException(
-                f"The Agent {0} with BehaviorName {1} needs an input of dimension "
-                f"{2} but received input of dimension {3}".format(
-                    agent_id, behavior_name, expected_shape, action.shape
-                )
-            )
-        expected_type = np.float32 if spec.is_action_continuous() else np.int32
-        if action.dtype != expected_type:
-            action = action.astype(expected_type)
-
+        action_spec = self._env_specs[behavior_name].action_spec
+        num_agents = len(self._env_state[behavior_name][0])
+        action = action_spec._validate_action(action, None, behavior_name)
         if behavior_name not in self._env_actions:
-            self._env_actions[behavior_name] = spec.create_empty_action(
-                len(self._env_state[behavior_name][0])
-            )
+            self._env_actions[behavior_name] = action_spec.empty_action(num_agents)
         try:
             index = np.where(self._env_state[behavior_name][0].agent_id == agent_id)[0][
                 0
@@ -380,7 +366,10 @@ class UnityEnvironment(BaseEnv):
                     agent_id
                 )
             ) from ie
-        self._env_actions[behavior_name][index] = action
+        if action_spec.continuous_size > 0:
+            self._env_actions[behavior_name].continuous[index] = action.continuous[0, :]
+        if action_spec.discrete_size > 0:
+            self._env_actions[behavior_name].discrete[index] = action.discrete[0, :]
 
     def get_steps(
         self, behavior_name: BehaviorName
@@ -424,7 +413,7 @@ class UnityEnvironment(BaseEnv):
 
     @timed
     def _generate_step_input(
-        self, vector_action: Dict[str, np.ndarray]
+        self, vector_action: Dict[str, ActionTuple]
     ) -> UnityInputProto:
         rl_in = UnityRLInputProto()
         for b in vector_action:
@@ -432,7 +421,17 @@ class UnityEnvironment(BaseEnv):
             if n_agents == 0:
                 continue
             for i in range(n_agents):
-                action = AgentActionProto(vector_actions=vector_action[b][i])
+                action = AgentActionProto()
+                if vector_action[b].continuous is not None:
+                    action.vector_actions_deprecated.extend(
+                        vector_action[b].continuous[i]
+                    )
+                    action.continuous_actions.extend(vector_action[b].continuous[i])
+                if vector_action[b].discrete is not None:
+                    action.vector_actions_deprecated.extend(
+                        vector_action[b].discrete[i]
+                    )
+                    action.discrete_actions.extend(vector_action[b].discrete[i])
                 rl_in.agent_actions[b].value.extend([action])
                 rl_in.command = STEP
         rl_in.side_channel = bytes(
@@ -469,7 +468,7 @@ class UnityEnvironment(BaseEnv):
         """
         try:
             # A negative value -N indicates that the child was terminated by signal N (POSIX only).
-            s = signal.Signals(-returncode)  # pylint: disable=no-member
+            s = signal.Signals(-returncode)
             return s.name
         except Exception:
             # Should generally be a ValueError, but catch everything just in case.

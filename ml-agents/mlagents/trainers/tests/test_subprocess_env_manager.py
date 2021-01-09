@@ -15,15 +15,17 @@ from mlagents_envs.base_env import BaseEnv
 from mlagents_envs.side_channel.engine_configuration_channel import EngineConfig
 from mlagents_envs.side_channel.stats_side_channel import StatsAggregationMethod
 from mlagents_envs.exception import UnityEnvironmentException
-from mlagents.trainers.tests.simple_test_envs import SimpleEnvironment
+from mlagents.trainers.tests.simple_test_envs import (
+    SimpleEnvironment,
+    UnexpectedExceptionEnvironment,
+)
 from mlagents.trainers.stats import StatsReporter
 from mlagents.trainers.agent_processor import AgentManagerQueue
-from mlagents.trainers.tests.test_simple_rl import (
-    _check_environment_trains,
-    PPO_CONFIG,
-    generate_config,
+from mlagents.trainers.tests.check_env_trains import (
+    check_environment_trains,
     DebugWriter,
 )
+from mlagents.trainers.tests.dummy_config import ppo_dummy_config
 
 
 def mock_env_factory(worker_id):
@@ -137,20 +139,20 @@ class SubprocessEnvManagerTest(unittest.TestCase):
 
     @mock.patch("mlagents.trainers.subprocess_env_manager.SubprocessEnvManager._step")
     @mock.patch(
-        "mlagents.trainers.subprocess_env_manager.SubprocessEnvManager.external_brains",
+        "mlagents.trainers.subprocess_env_manager.SubprocessEnvManager.training_behaviors",
         new_callable=mock.PropertyMock,
     )
     @mock.patch(
         "mlagents.trainers.subprocess_env_manager.SubprocessEnvManager.create_worker"
     )
-    def test_advance(self, mock_create_worker, external_brains_mock, step_mock):
+    def test_advance(self, mock_create_worker, training_behaviors_mock, step_mock):
         brain_name = "testbrain"
         action_info_dict = {brain_name: MagicMock()}
         mock_create_worker.side_effect = create_worker_mock
         env_manager = SubprocessEnvManager(
             mock_env_factory, EngineConfig.default_config(), 3
         )
-        external_brains_mock.return_value = [brain_name]
+        training_behaviors_mock.return_value = [brain_name]
         agent_manager_mock = mock.Mock()
         mock_policy = mock.Mock()
         agent_manager_mock.policy_queue.get_nowait.side_effect = [
@@ -167,7 +169,7 @@ class SubprocessEnvManagerTest(unittest.TestCase):
         }
         step_info = EnvironmentStep(step_info_dict, 0, action_info_dict, env_stats)
         step_mock.return_value = [step_info]
-        env_manager.advance()
+        env_manager.process_steps(env_manager.get_steps())
 
         # Test add_experiences
         env_manager._step.assert_called_once()
@@ -187,17 +189,16 @@ class SubprocessEnvManagerTest(unittest.TestCase):
 @pytest.mark.parametrize("num_envs", [1, 4])
 def test_subprocess_env_endtoend(num_envs):
     def simple_env_factory(worker_id, config):
-        env = SimpleEnvironment(["1D"], use_discrete=True)
+        env = SimpleEnvironment(["1D"], action_sizes=(0, 1))
         return env
 
     env_manager = SubprocessEnvManager(
         simple_env_factory, EngineConfig.default_config(), num_envs
     )
-    trainer_config = generate_config(PPO_CONFIG, override_vals={"max_steps": 5000})
     # Run PPO using env_manager
-    _check_environment_trains(
+    check_environment_trains(
         simple_env_factory(0, []),
-        trainer_config,
+        {"1D": ppo_dummy_config()},
         env_manager=env_manager,
         success_threshold=None,
     )
@@ -207,6 +208,32 @@ def test_subprocess_env_endtoend(num_envs):
     assert all(
         val > 0.7 for val in StatsReporter.writers[0].get_last_rewards().values()
     )
+    env_manager.close()
+
+
+class CustomTestOnlyException(Exception):
+    pass
+
+
+@pytest.mark.parametrize("num_envs", [1, 4])
+def test_subprocess_failing_step(num_envs):
+    def failing_step_env_factory(_worker_id, _config):
+        env = UnexpectedExceptionEnvironment(
+            ["1D"], use_discrete=True, to_raise=CustomTestOnlyException
+        )
+        return env
+
+    env_manager = SubprocessEnvManager(
+        failing_step_env_factory, EngineConfig.default_config()
+    )
+    # Expect the exception raised to be routed back up to the top level.
+    with pytest.raises(CustomTestOnlyException):
+        check_environment_trains(
+            failing_step_env_factory(0, []),
+            {"1D": ppo_dummy_config()},
+            env_manager=env_manager,
+            success_threshold=None,
+        )
     env_manager.close()
 
 

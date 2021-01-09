@@ -7,7 +7,7 @@ over using the Editor:
 - You can exchange executable with other people without having to share your
   entire repository.
 - You can put your executable on a remote machine for faster training.
-- You can use `Headless` mode for faster training.
+- You can use `Server Build` (`Headless`) mode for faster training (as long as the executable does not need rendering).
 - You can keep using the Unity Editor for other tasks while the agents are
   training.
 
@@ -37,7 +37,8 @@ launches our environment executable. This means:
 1. Open Player Settings (menu: **Edit** > **Project Settings** > **Player**).
 1. Under **Resolution and Presentation**:
    - Ensure that **Run in Background** is Checked.
-   - Ensure that **Display Resolution Dialog** is set to Disabled.
+   - Ensure that **Display Resolution Dialog** is set to Disabled. (Note: this
+    setting may not be available in newer versions of the editor.)
 1. Open the Build Settings window (menu:**File** > **Build Settings**).
 1. Choose your target platform.
    - (optional) Select “Development Build” to
@@ -85,7 +86,7 @@ env = UnityEnvironment(file_name=<env_name>)
    - `<run-identifier>` is a string used to separate the results of different
      training runs
 
-For example, if you are training with a 3DBall executable you exported to the
+For example, if you are training with a 3DBall executable, and you saved it to
 the directory where you installed the ML-Agents Toolkit, run:
 
 ```sh
@@ -132,9 +133,6 @@ Unity brain name: Ball3DLearning
         Number of Visual Observations (per agent): 0
         Vector Observation space size (per agent): 8
         Number of stacked Vector Observation: 1
-        Vector Action space type: continuous
-        Vector Action space size (per agent): [2]
-        Vector Action descriptions: ,
 INFO:mlagents_envs:Hyperparameters for the PPO Trainer of brain Ball3DLearning:
         batch_size:          64
         beta:                0.001
@@ -170,7 +168,7 @@ INFO:mlagents.trainers: first-run-0: Ball3DLearning: Step: 10000. Mean Reward: 2
 ```
 
 You can press Ctrl+C to stop the training, and your trained model will be at
-`results/<run-identifier>/<behavior_name>.nn`, which corresponds to your model's
+`results/<run-identifier>/<behavior_name>.onnx`, which corresponds to your model's
 latest checkpoint. (**Note:** There is a known bug on Windows that causes the
 saving of the model to fail when you early terminate the training, it's
 recommended to wait until Step has reached the max_steps parameter you set in
@@ -181,6 +179,6 @@ following the steps below:
    `Project/Assets/ML-Agents/Examples/3DBall/TFModels/`.
 1. Open the Unity Editor, and select the **3DBall** scene as described above.
 1. Select the **3DBall** prefab from the Project window and select **Agent**.
-1. Drag the `<behavior_name>.nn` file from the Project window of the Editor to
+1. Drag the `<behavior_name>.onnx` file from the Project window of the Editor to
    the **Model** placeholder in the **Ball3DAgent** inspector window.
 1. Press the **Play** button at the top of the Editor.

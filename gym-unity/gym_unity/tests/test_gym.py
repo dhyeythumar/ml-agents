@@ -6,11 +6,12 @@ from gym import spaces
 from gym_unity.envs import UnityToGymWrapper
 from mlagents_envs.base_env import (
     BehaviorSpec,
-    ActionType,
+    ActionSpec,
     DecisionSteps,
     TerminalSteps,
     BehaviorMapping,
 )
+from mlagents.trainers.tests.dummy_config import create_sensor_specs_with_shapes
 
 
 def test_gym_wrapper():
@@ -54,6 +55,27 @@ def test_branched_flatten():
     # Check that False produces a MultiDiscrete
     env = UnityToGymWrapper(mock_env, flatten_branched=False)
     assert isinstance(env.action_space, spaces.MultiDiscrete)
+
+
+def test_action_space():
+    mock_env = mock.MagicMock()
+    mock_spec = create_mock_group_spec(
+        vector_action_space_type="discrete", vector_action_space_size=[5]
+    )
+    mock_decision_step, mock_terminal_step = create_mock_vector_steps(
+        mock_spec, num_agents=1
+    )
+    setup_mock_unityenvironment(
+        mock_env, mock_spec, mock_decision_step, mock_terminal_step
+    )
+
+    env = UnityToGymWrapper(mock_env, flatten_branched=True)
+    assert isinstance(env.action_space, spaces.Discrete)
+    assert env.action_space.n == 5
+
+    env = UnityToGymWrapper(mock_env, flatten_branched=False)
+    assert isinstance(env.action_space, spaces.Discrete)
+    assert env.action_space.n == 5
 
 
 @pytest.mark.parametrize("use_uint8", [True, False], ids=["float", "uint8"])
@@ -119,7 +141,7 @@ def test_gym_wrapper_single_visual_and_vector(use_uint8):
     assert isinstance(done, (bool, np.bool_))
     assert isinstance(info, dict)
 
-    # check behaviour for allow_multiple_obs = False
+    # check behavior for allow_multiple_obs = False
     env = UnityToGymWrapper(mock_env, uint8_visual=use_uint8, allow_multiple_obs=False)
     assert isinstance(env, UnityToGymWrapper)
     assert isinstance(env.observation_space, spaces.Box)
@@ -164,7 +186,7 @@ def test_gym_wrapper_multi_visual_and_vector(use_uint8):
     assert isinstance(done, (bool, np.bool_))
     assert isinstance(info, dict)
 
-    # check behaviour for allow_multiple_obs = False
+    # check behavior for allow_multiple_obs = False
     env = UnityToGymWrapper(mock_env, uint8_visual=use_uint8, allow_multiple_obs=False)
     assert isinstance(env, UnityToGymWrapper)
     assert isinstance(env.observation_space, spaces.Box)
@@ -190,22 +212,23 @@ def create_mock_group_spec(
     Creates a mock BrainParameters object with parameters.
     """
     # Avoid using mutable object as default param
-    act_type = ActionType.DISCRETE
     if vector_action_space_type == "continuous":
-        act_type = ActionType.CONTINUOUS
         if vector_action_space_size is None:
             vector_action_space_size = 2
         else:
             vector_action_space_size = vector_action_space_size[0]
+        action_spec = ActionSpec.create_continuous(vector_action_space_size)
     else:
         if vector_action_space_size is None:
             vector_action_space_size = (2,)
         else:
             vector_action_space_size = tuple(vector_action_space_size)
+        action_spec = ActionSpec.create_discrete(vector_action_space_size)
     obs_shapes = [(vector_observation_space_size,)]
     for _ in range(number_visual_observations):
         obs_shapes += [(8, 8, 3)]
-    return BehaviorSpec(obs_shapes, act_type, vector_action_space_size)
+    sen_spec = create_sensor_specs_with_shapes(obs_shapes)
+    return BehaviorSpec(sen_spec, action_spec)
 
 
 def create_mock_vector_steps(specs, num_agents=1, number_visual_observations=0):

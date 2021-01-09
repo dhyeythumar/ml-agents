@@ -1,49 +1,24 @@
-from unittest import mock
 from typing import List, Tuple
 import numpy as np
 
-from mlagents.trainers.brain import CameraResolution, BrainParameters
 from mlagents.trainers.buffer import AgentBuffer
+from mlagents.trainers.torch.action_log_probs import LogProbsTuple
 from mlagents.trainers.trajectory import Trajectory, AgentExperience
 from mlagents_envs.base_env import (
     DecisionSteps,
     TerminalSteps,
+    SensorSpec,
     BehaviorSpec,
-    ActionType,
+    ActionSpec,
+    ActionTuple,
 )
-
-
-def create_mock_brainparams(
-    number_visual_observations=0,
-    vector_action_space_type="continuous",
-    vector_observation_space_size=3,
-    vector_action_space_size=None,
-):
-    """
-    Creates a mock BrainParameters object with parameters.
-    """
-    # Avoid using mutable object as default param
-    if vector_action_space_size is None:
-        vector_action_space_size = [2]
-    mock_brain = mock.Mock()
-    mock_brain.return_value.number_visual_observations = number_visual_observations
-    mock_brain.return_value.vector_action_space_type = vector_action_space_type
-    mock_brain.return_value.vector_observation_space_size = (
-        vector_observation_space_size
-    )
-    camrez = CameraResolution(height=84, width=84, num_channels=3)
-    mock_brain.return_value.camera_resolutions = [camrez] * number_visual_observations
-    mock_brain.return_value.vector_action_space_size = vector_action_space_size
-    mock_brain.return_value.brain_name = "MockBrain"
-    return mock_brain()
+from mlagents.trainers.tests.dummy_config import create_sensor_specs_with_shapes
 
 
 def create_mock_steps(
-    num_agents: int = 1,
-    num_vector_observations: int = 0,
-    num_vis_observations: int = 0,
-    action_shape: List[int] = None,
-    discrete: bool = False,
+    num_agents: int,
+    sensor_specs: List[SensorSpec],
+    action_spec: ActionSpec,
     done: bool = False,
 ) -> Tuple[DecisionSteps, TerminalSteps]:
     """
@@ -51,37 +26,24 @@ def create_mock_steps(
     Imitates constant vector/visual observations, rewards, dones, and agents.
 
     :int num_agents: Number of "agents" to imitate.
-    :int num_vector_observations: Number of "observations" in your observation space
-    :int num_vis_observations: Number of "observations" in your observation space
-    :int num_vector_acts: Number of actions in your action space
-    :bool discrete: Whether or not action space is discrete
+    :List sensor_specs: A List of the observation specs in your steps
+    :int action_spec: ActionSpec for the agent
     :bool done: Whether all the agents in the batch are done
     """
-    if action_shape is None:
-        action_shape = [2]
-
     obs_list = []
-    for _ in range(num_vis_observations):
-        obs_list.append(np.ones((num_agents, 84, 84, 3), dtype=np.float32))
-    if num_vector_observations > 1:
-        obs_list.append(
-            np.array(num_agents * [num_vector_observations * [1]], dtype=np.float32)
-        )
+    for sen_spec in sensor_specs:
+        obs_list.append(np.ones((num_agents,) + sen_spec.shape, dtype=np.float32))
     action_mask = None
-    if discrete:
+    if action_spec.is_discrete():
         action_mask = [
             np.array(num_agents * [action_size * [False]])
-            for action_size in action_shape
-        ]
+            for action_size in action_spec.discrete_branches  # type: ignore
+        ]  # type: ignore
 
     reward = np.array(num_agents * [1.0], dtype=np.float32)
     interrupted = np.array(num_agents * [False], dtype=np.bool)
     agent_id = np.arange(num_agents, dtype=np.int32)
-    behavior_spec = BehaviorSpec(
-        [(84, 84, 3)] * num_vis_observations + [(num_vector_observations, 0, 0)],
-        ActionType.DISCRETE if discrete else ActionType.CONTINUOUS,
-        action_shape if discrete else action_shape[0],
-    )
+    behavior_spec = BehaviorSpec(sensor_specs, action_spec)
     if done:
         return (
             DecisionSteps.empty(behavior_spec),
@@ -94,55 +56,57 @@ def create_mock_steps(
         )
 
 
-def create_steps_from_brainparams(
-    brain_params: BrainParameters, num_agents: int = 1
+def create_steps_from_behavior_spec(
+    behavior_spec: BehaviorSpec, num_agents: int = 1
 ) -> Tuple[DecisionSteps, TerminalSteps]:
     return create_mock_steps(
         num_agents=num_agents,
-        num_vector_observations=brain_params.vector_observation_space_size,
-        num_vis_observations=brain_params.number_visual_observations,
-        action_shape=brain_params.vector_action_space_size,
-        discrete=brain_params.vector_action_space_type == "discrete",
+        sensor_specs=behavior_spec.sensor_specs,
+        action_spec=behavior_spec.action_spec,
     )
 
 
 def make_fake_trajectory(
     length: int,
+    sensor_specs: List[SensorSpec],
+    action_spec: ActionSpec,
     max_step_complete: bool = False,
-    vec_obs_size: int = 1,
-    num_vis_obs: int = 1,
-    action_space: List[int] = None,
     memory_size: int = 10,
-    is_discrete: bool = True,
 ) -> Trajectory:
     """
     Makes a fake trajectory of length length. If max_step_complete,
     the trajectory is terminated by a max step rather than a done.
     """
-    if action_space is None:
-        action_space = [2]
     steps_list = []
+
+    action_size = action_spec.discrete_size + action_spec.continuous_size
     for _i in range(length - 1):
         obs = []
-        for _j in range(num_vis_obs):
-            obs.append(np.ones((84, 84, 3), dtype=np.float32))
-        obs.append(np.ones(vec_obs_size, dtype=np.float32))
+        for sen_spec in sensor_specs:
+            obs.append(np.ones(sen_spec.shape, dtype=np.float32))
         reward = 1.0
         done = False
-        if is_discrete:
-            action_size = len(action_space)
-            action_probs = np.ones(np.sum(action_space), dtype=np.float32)
-        else:
-            action_size = action_space[0]
-            action_probs = np.ones((action_size), dtype=np.float32)
-        action = np.zeros(action_size, dtype=np.float32)
-        action_pre = np.zeros(action_size, dtype=np.float32)
+        action = ActionTuple(
+            continuous=np.zeros(action_spec.continuous_size, dtype=np.float32),
+            discrete=np.zeros(action_spec.discrete_size, dtype=np.int32),
+        )
+        action_probs = LogProbsTuple(
+            continuous=np.ones(action_spec.continuous_size, dtype=np.float32),
+            discrete=np.ones(action_spec.discrete_size, dtype=np.float32),
+        )
         action_mask = (
-            [[False for _ in range(branch)] for branch in action_space]
-            if is_discrete
+            [
+                [False for _ in range(branch)]
+                for branch in action_spec.discrete_branches
+            ]  # type: ignore
+            if action_spec.is_discrete()
             else None
         )
-        prev_action = np.ones(action_size, dtype=np.float32)
+        if action_spec.is_discrete():
+            prev_action = np.ones(action_size, dtype=np.int32)
+        else:
+            prev_action = np.ones(action_size, dtype=np.float32)
+
         max_step = False
         memory = np.ones(memory_size, dtype=np.float32)
         agent_id = "test_agent"
@@ -153,20 +117,21 @@ def make_fake_trajectory(
             done=done,
             action=action,
             action_probs=action_probs,
-            action_pre=action_pre,
             action_mask=action_mask,
             prev_action=prev_action,
             interrupted=max_step,
             memory=memory,
         )
         steps_list.append(experience)
+    obs = []
+    for sen_spec in sensor_specs:
+        obs.append(np.ones(sen_spec.shape, dtype=np.float32))
     last_experience = AgentExperience(
         obs=obs,
         reward=reward,
         done=not max_step_complete,
         action=action,
         action_probs=action_probs,
-        action_pre=action_pre,
         action_mask=action_mask,
         prev_action=prev_action,
         interrupted=max_step_complete,
@@ -180,22 +145,15 @@ def make_fake_trajectory(
 
 def simulate_rollout(
     length: int,
-    brain_params: BrainParameters,
+    behavior_spec: BehaviorSpec,
     memory_size: int = 10,
     exclude_key_list: List[str] = None,
 ) -> AgentBuffer:
-    vec_obs_size = brain_params.vector_observation_space_size
-    num_vis_obs = brain_params.number_visual_observations
-    action_space = brain_params.vector_action_space_size
-    is_discrete = brain_params.vector_action_space_type == "discrete"
-
     trajectory = make_fake_trajectory(
         length,
-        vec_obs_size=vec_obs_size,
-        num_vis_obs=num_vis_obs,
-        action_space=action_space,
+        behavior_spec.sensor_specs,
+        action_spec=behavior_spec.action_spec,
         memory_size=memory_size,
-        is_discrete=is_discrete,
     )
     buffer = trajectory.to_agentbuffer()
     # If a key_list was given, remove those keys
@@ -206,85 +164,32 @@ def simulate_rollout(
     return buffer
 
 
-def setup_mock_brain(
-    use_discrete,
-    use_visual,
-    discrete_action_space=None,
-    vector_action_space=None,
-    vector_obs_space=8,
+def setup_test_behavior_specs(
+    use_discrete=True, use_visual=False, vector_action_space=2, vector_obs_space=8
 ):
-    # defaults
-    discrete_action_space = (
-        [3, 3, 3, 2] if discrete_action_space is None else discrete_action_space
-    )
-    vector_action_space = [2] if vector_action_space is None else vector_action_space
-
-    if not use_visual:
-        mock_brain = create_mock_brainparams(
-            vector_action_space_type="discrete" if use_discrete else "continuous",
-            vector_action_space_size=discrete_action_space
-            if use_discrete
-            else vector_action_space,
-            vector_observation_space_size=vector_obs_space,
-        )
+    if use_discrete:
+        action_spec = ActionSpec.create_discrete(tuple(vector_action_space))
     else:
-        mock_brain = create_mock_brainparams(
-            vector_action_space_type="discrete" if use_discrete else "continuous",
-            vector_action_space_size=discrete_action_space
-            if use_discrete
-            else vector_action_space,
-            vector_observation_space_size=0,
-            number_visual_observations=1,
-        )
-    return mock_brain
+        action_spec = ActionSpec.create_continuous(vector_action_space)
+    observation_shapes = [(84, 84, 3)] * int(use_visual) + [(vector_obs_space,)]
+    sen_spec = create_sensor_specs_with_shapes(observation_shapes)
+    behavior_spec = BehaviorSpec(sen_spec, action_spec)
+    return behavior_spec
 
 
-def create_mock_3dball_brain():
-    mock_brain = create_mock_brainparams(
-        vector_action_space_type="continuous",
-        vector_action_space_size=[2],
-        vector_observation_space_size=8,
+def create_mock_3dball_behavior_specs():
+    return setup_test_behavior_specs(
+        False, False, vector_action_space=2, vector_obs_space=8
     )
-    mock_brain.brain_name = "Ball3DBrain"
-    return mock_brain
 
 
-def create_mock_pushblock_brain():
-    mock_brain = create_mock_brainparams(
-        vector_action_space_type="discrete",
-        vector_action_space_size=[7],
-        vector_observation_space_size=70,
+def create_mock_pushblock_behavior_specs():
+    return setup_test_behavior_specs(
+        True, False, vector_action_space=7, vector_obs_space=70
     )
-    mock_brain.brain_name = "PushblockLearning"
-    return mock_brain
 
 
-def create_mock_banana_brain():
-    mock_brain = create_mock_brainparams(
-        number_visual_observations=1,
-        vector_action_space_type="discrete",
-        vector_action_space_size=[3, 3, 3, 2],
-        vector_observation_space_size=0,
-    )
-    return mock_brain
-
-
-def make_brain_parameters(
-    discrete_action: bool = False,
-    visual_inputs: int = 0,
-    brain_name: str = "RealFakeBrain",
-    vec_obs_size: int = 6,
-) -> BrainParameters:
-    resolutions = [
-        CameraResolution(width=30, height=40, num_channels=3)
-        for _ in range(visual_inputs)
-    ]
-
-    return BrainParameters(
-        vector_observation_space_size=vec_obs_size,
-        camera_resolutions=resolutions,
-        vector_action_space_size=[2],
-        vector_action_descriptions=["", ""],
-        vector_action_space_type=int(not discrete_action),
-        brain_name=brain_name,
+def create_mock_banana_behavior_specs():
+    return setup_test_behavior_specs(
+        True, True, vector_action_space=[3, 3, 3, 2], vector_obs_space=0
     )

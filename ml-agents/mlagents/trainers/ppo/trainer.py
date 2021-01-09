@@ -3,19 +3,19 @@
 # Contains an implementation of PPO as described in: https://arxiv.org/abs/1707.06347
 
 from collections import defaultdict
+from typing import cast
 
 import numpy as np
 
 from mlagents_envs.logging_util import get_logger
-from mlagents.trainers.policy.nn_policy import NNPolicy
+from mlagents_envs.base_env import BehaviorSpec
 from mlagents.trainers.trainer.rl_trainer import RLTrainer
-from mlagents.trainers.brain import BrainParameters
-from mlagents.trainers.policy.tf_policy import TFPolicy
-from mlagents.trainers.ppo.optimizer import PPOOptimizer
+from mlagents.trainers.policy import Policy
+from mlagents.trainers.policy.torch_policy import TorchPolicy
+from mlagents.trainers.ppo.optimizer_torch import TorchPPOOptimizer
 from mlagents.trainers.trajectory import Trajectory
-from mlagents.trainers.exception import UnityTrainerException
 from mlagents.trainers.behavior_id_utils import BehaviorIdentifiers
-
+from mlagents.trainers.settings import TrainerSettings, PPOSettings
 
 logger = get_logger(__name__)
 
@@ -25,64 +25,37 @@ class PPOTrainer(RLTrainer):
 
     def __init__(
         self,
-        brain_name: str,
+        behavior_name: str,
         reward_buff_cap: int,
-        trainer_parameters: dict,
+        trainer_settings: TrainerSettings,
         training: bool,
         load: bool,
         seed: int,
-        run_id: str,
+        artifact_path: str,
     ):
         """
         Responsible for collecting experiences and training PPO model.
-        :param brain_name: The name of the brain associated with trainer config
+        :param behavior_name: The name of the behavior associated with trainer config
         :param reward_buff_cap: Max reward history to track in the reward buffer
-        :param trainer_parameters: The parameters for the trainer (dictionary).
+        :param trainer_settings: The parameters for the trainer.
         :param training: Whether the trainer is set for training.
         :param load: Whether the model should be loaded.
         :param seed: The seed the model will be initialized with
-        :param run_id: The identifier of the current run
+        :param artifact_path: The directory within which to store artifacts from this trainer.
         """
-        super(PPOTrainer, self).__init__(
-            brain_name, trainer_parameters, training, run_id, reward_buff_cap
+        super().__init__(
+            behavior_name,
+            trainer_settings,
+            training,
+            load,
+            artifact_path,
+            reward_buff_cap,
         )
-        self.param_keys = [
-            "batch_size",
-            "beta",
-            "buffer_size",
-            "epsilon",
-            "hidden_units",
-            "lambd",
-            "learning_rate",
-            "max_steps",
-            "normalize",
-            "num_epoch",
-            "num_layers",
-            "time_horizon",
-            "sequence_length",
-            "summary_freq",
-            "use_recurrent",
-            "memory_size",
-            "output_path",
-            "reward_signals",
-        ]
-        self._check_param_keys()
-        self.load = load
+        self.hyperparameters: PPOSettings = cast(
+            PPOSettings, self.trainer_settings.hyperparameters
+        )
         self.seed = seed
-        self.policy: NNPolicy = None  # type: ignore
-
-    def _check_param_keys(self):
-        super()._check_param_keys()
-        # Check that batch size is greater than sequence length. Else, throw
-        # an exception.
-        if (
-            self.trainer_parameters["sequence_length"]
-            > self.trainer_parameters["batch_size"]
-            and self.trainer_parameters["use_recurrent"]
-        ):
-            raise UnityTrainerException(
-                "batch_size must be greater than or equal to sequence_length when use_recurrent is True."
-            )
+        self.policy: Policy = None  # type: ignore
 
     def _process_trajectory(self, trajectory: Trajectory) -> None:
         """
@@ -96,7 +69,7 @@ class PPOTrainer(RLTrainer):
         agent_buffer_trajectory = trajectory.to_agentbuffer()
         # Update the normalization
         if self.is_training:
-            self.policy.update_normalization(agent_buffer_trajectory["vector_obs"])
+            self.policy.update_normalization(agent_buffer_trajectory)
 
         # Get all value estimates
         value_estimates, value_next = self.optimizer.get_trajectory_value_estimates(
@@ -104,10 +77,12 @@ class PPOTrainer(RLTrainer):
             trajectory.next_obs,
             trajectory.done_reached and not trajectory.interrupted,
         )
+
         for name, v in value_estimates.items():
-            agent_buffer_trajectory["{}_value_estimates".format(name)].extend(v)
+            agent_buffer_trajectory[f"{name}_value_estimates"].extend(v)
             self._stats_reporter.add_stat(
-                self.optimizer.reward_signals[name].value_name, np.mean(v)
+                f"Policy/{self.optimizer.reward_signals[name].name.capitalize()} Value Estimate",
+                np.mean(v),
             )
 
         # Evaluate all reward functions
@@ -115,10 +90,10 @@ class PPOTrainer(RLTrainer):
             agent_buffer_trajectory["environment_rewards"]
         )
         for name, reward_signal in self.optimizer.reward_signals.items():
-            evaluate_result = reward_signal.evaluate_batch(
-                agent_buffer_trajectory
-            ).scaled_reward
-            agent_buffer_trajectory["{}_rewards".format(name)].extend(evaluate_result)
+            evaluate_result = (
+                reward_signal.evaluate(agent_buffer_trajectory) * reward_signal.strength
+            )
+            agent_buffer_trajectory[f"{name}_rewards"].extend(evaluate_result)
             # Report the reward signals
             self.collected_rewards[name][agent_id] += np.sum(evaluate_result)
 
@@ -128,23 +103,22 @@ class PPOTrainer(RLTrainer):
         for name in self.optimizer.reward_signals:
             bootstrap_value = value_next[name]
 
-            local_rewards = agent_buffer_trajectory[
-                "{}_rewards".format(name)
-            ].get_batch()
+            local_rewards = agent_buffer_trajectory[f"{name}_rewards"].get_batch()
             local_value_estimates = agent_buffer_trajectory[
-                "{}_value_estimates".format(name)
+                f"{name}_value_estimates"
             ].get_batch()
+
             local_advantage = get_gae(
                 rewards=local_rewards,
                 value_estimates=local_value_estimates,
                 value_next=bootstrap_value,
                 gamma=self.optimizer.reward_signals[name].gamma,
-                lambd=self.trainer_parameters["lambd"],
+                lambd=self.hyperparameters.lambd,
             )
             local_return = local_advantage + local_value_estimates
             # This is later use as target for the different value estimates
-            agent_buffer_trajectory["{}_returns".format(name)].set(local_return)
-            agent_buffer_trajectory["{}_advantage".format(name)].set(local_advantage)
+            agent_buffer_trajectory[f"{name}_returns"].set(local_return)
+            agent_buffer_trajectory[f"{name}_advantage"].set(local_advantage)
             tmp_advantages.append(local_advantage)
             tmp_returns.append(local_return)
 
@@ -170,7 +144,7 @@ class PPOTrainer(RLTrainer):
         :return: A boolean corresponding to whether or not update_model() can be run
         """
         size_of_buffer = self.update_buffer.num_experiences
-        return size_of_buffer > self.trainer_parameters["buffer_size"]
+        return size_of_buffer > self.hyperparameters.buffer_size
 
     def _update_policy(self):
         """
@@ -183,21 +157,21 @@ class PPOTrainer(RLTrainer):
         # Make sure batch_size is a multiple of sequence length. During training, we
         # will need to reshape the data into a batch_size x sequence_length tensor.
         batch_size = (
-            self.trainer_parameters["batch_size"]
-            - self.trainer_parameters["batch_size"] % self.policy.sequence_length
+            self.hyperparameters.batch_size
+            - self.hyperparameters.batch_size % self.policy.sequence_length
         )
         # Make sure there is at least one sequence
         batch_size = max(batch_size, self.policy.sequence_length)
 
         n_sequences = max(
-            int(self.trainer_parameters["batch_size"] / self.policy.sequence_length), 1
+            int(self.hyperparameters.batch_size / self.policy.sequence_length), 1
         )
 
         advantages = self.update_buffer["advantages"].get_batch()
         self.update_buffer["advantages"].set(
             (advantages - advantages.mean()) / (advantages.std() + 1e-10)
         )
-        num_epoch = self.trainer_parameters["num_epoch"]
+        num_epoch = self.hyperparameters.num_epoch
         batch_update_stats = defaultdict(list)
         for _ in range(num_epoch):
             self.update_buffer.shuffle(sequence_length=self.policy.sequence_length)
@@ -220,28 +194,31 @@ class PPOTrainer(RLTrainer):
         self._clear_update_buffer()
         return True
 
-    def create_policy(
-        self, parsed_behavior_id: BehaviorIdentifiers, brain_parameters: BrainParameters
-    ) -> TFPolicy:
+    def create_torch_policy(
+        self, parsed_behavior_id: BehaviorIdentifiers, behavior_spec: BehaviorSpec
+    ) -> TorchPolicy:
         """
-        Creates a PPO policy to trainers list of policies.
-        :param brain_parameters: specifications for policy construction
+        Creates a policy with a PyTorch backend and PPO hyperparameters
+        :param parsed_behavior_id:
+        :param behavior_spec: specifications for policy construction
         :return policy
         """
-        policy = NNPolicy(
+        policy = TorchPolicy(
             self.seed,
-            brain_parameters,
-            self.trainer_parameters,
-            self.is_training,
-            self.load,
+            behavior_spec,
+            self.trainer_settings,
             condition_sigma_on_obs=False,  # Faster training for PPO
-            create_tf_graph=False,  # We will create the TF graph in the Optimizer
+            separate_critic=True,  # Match network architecture with TF
         )
-
         return policy
 
+    def create_ppo_optimizer(self) -> TorchPPOOptimizer:
+        return TorchPPOOptimizer(  # type: ignore
+            cast(TorchPolicy, self.policy), self.trainer_settings  # type: ignore
+        )  # type: ignore
+
     def add_policy(
-        self, parsed_behavior_id: BehaviorIdentifiers, policy: TFPolicy
+        self, parsed_behavior_id: BehaviorIdentifiers, policy: Policy
     ) -> None:
         """
         Adds policy to trainer.
@@ -255,17 +232,21 @@ class PPOTrainer(RLTrainer):
                     self.__class__.__name__
                 )
             )
-        if not isinstance(policy, NNPolicy):
-            raise RuntimeError("Non-NNPolicy passed to PPOTrainer.add_policy()")
         self.policy = policy
-        self.optimizer = PPOOptimizer(self.policy, self.trainer_parameters)
+        self.policies[parsed_behavior_id.behavior_id] = policy
+
+        self.optimizer = self.create_ppo_optimizer()
         for _reward_signal in self.optimizer.reward_signals.keys():
             self.collected_rewards[_reward_signal] = defaultdict(lambda: 0)
+
+        self.model_saver.register(self.policy)
+        self.model_saver.register(self.optimizer)
+        self.model_saver.initialize_or_load()
+
         # Needed to resume loads properly
         self.step = policy.get_current_step()
-        self.next_summary_step = self._get_next_summary_step()
 
-    def get_policy(self, name_behavior_id: str) -> TFPolicy:
+    def get_policy(self, name_behavior_id: str) -> Policy:
         """
         Gets policy from trainer associated with name_behavior_id
         :param name_behavior_id: full identifier of policy

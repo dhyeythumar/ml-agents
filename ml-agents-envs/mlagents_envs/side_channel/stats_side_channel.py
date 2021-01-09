@@ -1,7 +1,9 @@
-from mlagents_envs.side_channel import SideChannel, IncomingMessage
 import uuid
-from typing import Dict, Tuple
+from typing import Tuple, List, Mapping
 from enum import Enum
+from collections import defaultdict
+
+from mlagents_envs.side_channel import SideChannel, IncomingMessage
 
 
 # Determines the behavior of how multiple stats within the same summary period are combined.
@@ -11,6 +13,13 @@ class StatsAggregationMethod(Enum):
 
     # Only the most recent value is reported.
     MOST_RECENT = 1
+
+    # Values within the summary period are summed up before reporting.
+    SUM = 2
+
+
+StatList = List[Tuple[float, StatsAggregationMethod]]
+EnvironmentStats = Mapping[str, StatList]
 
 
 class StatsSideChannel(SideChannel):
@@ -24,11 +33,12 @@ class StatsSideChannel(SideChannel):
         # UUID('a1d8f7b7-cec8-50f9-b78b-d3e165a78520')
         super().__init__(uuid.UUID("a1d8f7b7-cec8-50f9-b78b-d3e165a78520"))
 
-        self.stats: Dict[str, Tuple[float, StatsAggregationMethod]] = {}
+        self.stats: EnvironmentStats = defaultdict(list)
 
     def on_message_received(self, msg: IncomingMessage) -> None:
         """
         Receive the message from the environment, and save it for later retrieval.
+
         :param msg:
         :return:
         """
@@ -36,13 +46,14 @@ class StatsSideChannel(SideChannel):
         val = msg.read_float32()
         agg_type = StatsAggregationMethod(msg.read_int32())
 
-        self.stats[key] = (val, agg_type)
+        self.stats[key].append((val, agg_type))
 
-    def get_and_reset_stats(self) -> Dict[str, Tuple[float, StatsAggregationMethod]]:
+    def get_and_reset_stats(self) -> EnvironmentStats:
         """
         Returns the current stats, and resets the internal storage of the stats.
+
         :return:
         """
         s = self.stats
-        self.stats = {}
+        self.stats = defaultdict(list)
         return s

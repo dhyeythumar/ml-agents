@@ -101,7 +101,7 @@ to the configuration of the robot (e.g. position of its base, position of its
 water hose and whether the hose is on or off).
 
 The last remaining piece of the reinforcement learning task is the **reward
-signal**. When training a robot to be a mean firefighting machine, we provide it
+signal**. The robot is trained to learn a policy that maximizes its overall rewards. When training a robot to be a mean firefighting machine, we provide it
 with rewards (positive and negative) indicating how well it is doing on
 completing the task. Note that the robot does not _know_ how to put out fires
 before it is trained. It learns the objective because it receives a large
@@ -185,7 +185,7 @@ example is [AlphaGo](https://en.wikipedia.org/wiki/AlphaGo), a
 [computer Go](https://en.wikipedia.org/wiki/Computer_Go) program, that leverages
 deep learning, that was able to beat Lee Sedol (a Go world champion).
 
-A key characteristic of deep learning algorithms is their ability learn very
+A key characteristic of deep learning algorithms is their ability to learn very
 complex functions from large amounts of training data. This makes them a natural
 choice for reinforcement learning tasks when a large amount of data can be
 generated, say through the use of a simulator or engine such as Unity. By
@@ -194,4 +194,4 @@ we can learn policies for very complex environments (a complex environment is
 one where the number of observations an agent perceives and the number of
 actions they can take are large). Many of the algorithms we provide in ML-Agents
 use some form of deep learning, built on top of the open-source library,
-[TensorFlow](Background-TensorFlow.md).
+[PyTorch](Background-PyTorch.md).

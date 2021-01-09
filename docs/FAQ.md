@@ -2,37 +2,6 @@
 
 ## Installation problems
 
-### Tensorflow dependency
-
-ML Agents requires TensorFlow; if you don't already have it installed, `pip`
-will try to install it when you install the ml-agents package.
-
-If you see a message like this
-
-```console
-ERROR: Could not find a version that satisfies the requirement tensorflow<2.0,>=1.7 (from mlagents) (from versions: none)
-ERROR: No matching distribution found for tensorflow<2.0,>=1.7 (from mlagents)
-```
-
-it means that there is no version of TensorFlow for your python environment.
-Some known potential causes are:
-
-- You're using 32-bit python instead of 64-bit. See the answer
-  [here](https://stackoverflow.com/a/1405971/224264) for how to tell which you
-  have installed.
-- You have the `tensorflow-gpu` package installed. This is equivalent to
-  `tensorflow`, however `pip` doesn't recognize this. The best way to resolve
-  this is to update to `tensorflow==1.15.0` which provides GPU support in the
-  same package (see the
-  [release notes](https://github.com/tensorflow/tensorflow/issues/33374) for
-  more details.)
-- You're on another architecture (e.g. ARM) which requires vendor provided
-  packages.
-
-In all of these cases, the issue is a pip/python environment setup issue. Please
-search the tensorflow github issues for similar problems and solutions before
-creating a new issue.
-
 ## Environment Permission Error
 
 If you directly import your Unity environment without building it in the editor,
@@ -75,6 +44,11 @@ There may be a number of possible causes:
   Unity Environment to figure what error happened.
 - _Cause_: You have assigned `HTTP_PROXY` and `HTTPS_PROXY` values in your
   environment variables. _Solution_: Remove these values and try again.
+- _Cause_: You are running in a headless environment (e.g. remotely connected
+  to a server). _Solution_: Pass `--no-graphics` to `mlagents-learn`, or
+  `no_graphics=True` to `RemoteRegistryEntry.make()` or the `UnityEnvironment`
+  initializer. If you need graphics for visual observations, you will need to
+  set up `xvfb` (or equivalent).
 
 ## Communication port {} still in use
 
@@ -94,3 +68,12 @@ terminating. In order to address this, set `Max Steps` for the Agents within the
 Scene Inspector to a value greater than 0. Alternatively, it is possible to
 manually set `done` conditions for episodes from within scripts for custom
 episode-terminating events.
+
+## "File name" cannot be opened because the developer cannot be verified.
+
+If you have downloaded the repository using the github website on macOS 10.15 (Catalina)
+or later, you may see this error when attempting to play scenes in the Unity project.
+Workarounds include installing the package using the Unity Package Manager (this is
+the officially supported approach - see [here](Installation.md)), or following the
+instructions [here](https://support.apple.com/en-us/HT202491) to verify the relevant
+files on your machine on a file-by-file basis.

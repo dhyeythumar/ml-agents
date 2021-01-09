@@ -131,7 +131,7 @@ namespace Unity.MLAgents.Sensors.Reflection
         internal static List<ISensor> CreateObservableSensors(object o, bool excludeInherited)
         {
             var sensorsOut = new List<ISensor>();
-            foreach (var(field, attr) in GetObservableFields(o, excludeInherited))
+            foreach (var (field, attr) in GetObservableFields(o, excludeInherited))
             {
                 var sensor = CreateReflectionSensor(o, field, null, attr);
                 if (sensor != null)
@@ -140,7 +140,7 @@ namespace Unity.MLAgents.Sensors.Reflection
                 }
             }
 
-            foreach (var(prop, attr) in GetObservableProperties(o, excludeInherited))
+            foreach (var (prop, attr) in GetObservableProperties(o, excludeInherited))
             {
                 if (!prop.CanRead)
                 {
@@ -185,7 +185,7 @@ namespace Unity.MLAgents.Sensors.Reflection
                 memberType = propertyInfo.PropertyType;
             }
 
-            if (!s_TypeToSensorInfo.ContainsKey(memberType))
+            if (!s_TypeToSensorInfo.ContainsKey(memberType) && !memberType.IsEnum)
             {
                 // For unsupported types, return null and we'll filter them out later.
                 return null;
@@ -210,8 +210,16 @@ namespace Unity.MLAgents.Sensors.Reflection
                 SensorName = sensorName
             };
 
-            var (_, sensorType) = s_TypeToSensorInfo[memberType];
-            var sensor = (ISensor) Activator.CreateInstance(sensorType, reflectionSensorInfo);
+            ISensor sensor = null;
+            if (memberType.IsEnum)
+            {
+                sensor = new EnumReflectionSensor(reflectionSensorInfo);
+            }
+            else
+            {
+                var (_, sensorType) = s_TypeToSensorInfo[memberType];
+                sensor = (ISensor)Activator.CreateInstance(sensorType, reflectionSensorInfo);
+            }
 
             // Wrap the base sensor in a StackingSensor if we're using stacking.
             if (observableAttribute.m_NumStackedObservations > 1)
@@ -233,12 +241,16 @@ namespace Unity.MLAgents.Sensors.Reflection
         internal static int GetTotalObservationSize(object o, bool excludeInherited, List<string> errorsOut)
         {
             int sizeOut = 0;
-            foreach (var(field, attr) in GetObservableFields(o, excludeInherited))
+            foreach (var (field, attr) in GetObservableFields(o, excludeInherited))
             {
                 if (s_TypeToSensorInfo.ContainsKey(field.FieldType))
                 {
                     var (obsSize, _) = s_TypeToSensorInfo[field.FieldType];
                     sizeOut += obsSize * attr.m_NumStackedObservations;
+                }
+                else if (field.FieldType.IsEnum)
+                {
+                    sizeOut += EnumReflectionSensor.GetEnumObservationSize(field.FieldType);
                 }
                 else
                 {
@@ -246,19 +258,20 @@ namespace Unity.MLAgents.Sensors.Reflection
                 }
             }
 
-            foreach (var(prop, attr) in GetObservableProperties(o, excludeInherited))
+            foreach (var (prop, attr) in GetObservableProperties(o, excludeInherited))
             {
-                if (s_TypeToSensorInfo.ContainsKey(prop.PropertyType))
+                if (!prop.CanRead)
                 {
-                    if (prop.CanRead)
-                    {
-                        var (obsSize, _) = s_TypeToSensorInfo[prop.PropertyType];
-                        sizeOut += obsSize * attr.m_NumStackedObservations;
-                    }
-                    else
-                    {
-                        errorsOut.Add($"Observable property {prop.Name} is write-only.");
-                    }
+                    errorsOut.Add($"Observable property {prop.Name} is write-only.");
+                }
+                else if (s_TypeToSensorInfo.ContainsKey(prop.PropertyType))
+                {
+                    var (obsSize, _) = s_TypeToSensorInfo[prop.PropertyType];
+                    sizeOut += obsSize * attr.m_NumStackedObservations;
+                }
+                else if (prop.PropertyType.IsEnum)
+                {
+                    sizeOut += EnumReflectionSensor.GetEnumObservationSize(prop.PropertyType);
                 }
                 else
                 {

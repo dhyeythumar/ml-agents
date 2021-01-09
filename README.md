@@ -2,7 +2,7 @@
 
 # Unity ML-Agents Toolkit
 
-[![docs badge](https://img.shields.io/badge/docs-reference-blue.svg)](https://github.com/Unity-Technologies/ml-agents/tree/release_2_docs/docs/)
+[![docs badge](https://img.shields.io/badge/docs-reference-blue.svg)](https://github.com/Unity-Technologies/ml-agents/tree/release_12_docs/docs/)
 
 [![license badge](https://img.shields.io/badge/license-Apache--2.0-green.svg)](LICENSE)
 
@@ -11,11 +11,11 @@
 
 **The Unity Machine Learning Agents Toolkit** (ML-Agents) is an open-source
 project that enables games and simulations to serve as environments for
-training intelligent agents. Agents can be trained using reinforcement learning,
-imitation learning, neuroevolution, or other machine learning methods through a
-simple-to-use Python API. We also provide implementations (based on TensorFlow)
+training intelligent agents. We provide implementations (based on PyTorch)
 of state-of-the-art algorithms to enable game developers and hobbyists to easily
-train intelligent agents for 2D, 3D and VR/AR games. These trained agents can be
+train intelligent agents for 2D, 3D and VR/AR games. Researchers can also use the
+provided simple-to-use Python API to train Agents using reinforcement learning,
+imitation learning, neuroevolution, or any other methods. These trained agents can be
 used for multiple purposes, including controlling NPC behavior (in a variety of
 settings such as multi-agent and adversarial), automated testing of game builds
 and evaluating different game design decisions pre-release. The ML-Agents
@@ -48,8 +48,8 @@ descriptions of all these features.
 
 ## Releases & Documentation
 
-**Our latest, stable release is `Release 2`. Click
-[here](https://github.com/Unity-Technologies/ml-agents/tree/release_2_docs/docs/Readme.md)
+**Our latest, stable release is `Release 12`. Click
+[here](https://github.com/Unity-Technologies/ml-agents/tree/release_12_docs/docs/Readme.md)
 to get started with the latest release of ML-Agents.**
 
 The table below lists all our releases, including our `master` branch which is
@@ -67,14 +67,15 @@ under active development and may be unstable. A few helpful guidelines:
 | **Version** | **Release Date** | **Source** | **Documentation** | **Download** |
 |:-------:|:------:|:-------------:|:-------:|:------------:|
 | **master (unstable)** | -- | [source](https://github.com/Unity-Technologies/ml-agents/tree/master) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/master/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/master.zip) |
-| **Release 2** | **May 20, 2020** | **[source](https://github.com/Unity-Technologies/ml-agents/tree/release_2)** | **[docs](https://github.com/Unity-Technologies/ml-agents/tree/release_2/docs/Readme.md)** | **[download](https://github.com/Unity-Technologies/ml-agents/archive/release_2.zip)** |
-| **Release 1** | April 30, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_1) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_1/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_1.zip) |
-| **0.15.1** | March 30, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.15.1) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.15.1/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.15.1.zip) |
-| **0.15.0** | March 18, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.15.0) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.15.0/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.15.0.zip) |
-| **0.14.1** | February 26, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.14.1) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.14.1/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.14.1.zip) |
-| **0.14.0** | February 13, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.14.0) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.14.0/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.14.0.zip) |
-| **0.13.1** | January 21, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.13.1) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.13.1/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.13.1.zip) |
-| **0.13.0** | January 8, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/0.13.0) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/0.13.0/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/0.13.0.zip) |
+| **Release 12** | **December 22, 2020** | **[source](https://github.com/Unity-Technologies/ml-agents/tree/release_12)** | **[docs](https://github.com/Unity-Technologies/ml-agents/tree/release_12_docs/docs/Readme.md)** | **[download](https://github.com/Unity-Technologies/ml-agents/archive/release_12.zip)** |
+| **Release 11** | December 21, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_11) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_11_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_11.zip) |
+| **Release 10** | November 18, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_10) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_10_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_10.zip) |
+| **Release 9** | November 4, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_9) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_9_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_9.zip) |
+| **Release 8** | October 14, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_8) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_8_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_8.zip) |
+| **Release 7** | September 16, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_7) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_7_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_7.zip) |
+| **Release 6** | August 12, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_6) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_6_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_6.zip) |
+| **Release 5** | July 31, 2020 | [source](https://github.com/Unity-Technologies/ml-agents/tree/release_5) | [docs](https://github.com/Unity-Technologies/ml-agents/tree/release_5_docs/docs/Readme.md) | [download](https://github.com/Unity-Technologies/ml-agents/archive/release_5.zip) |
+
 ## Citation
 
 If you are a researcher interested in a discussion of Unity as an AI platform,
@@ -134,7 +135,7 @@ We have published a series of blog posts that are relevant for ML-Agents:
 In addition to our own documentation, here are some additional, relevant
 articles:
 
-- [A Game Developer Learns Machine Learning](https://mikecann.co.uk/machine-learning/a-game-developer-learns-machine-learning-intent/)
+- [A Game Developer Learns Machine Learning](https://mikecann.co.uk/posts/a-game-developer-learns-machine-learning-intent)
 - [Explore Unity Technologies ML-Agents Exclusively on Intel Architecture](https://software.intel.com/en-us/articles/explore-unity-technologies-ml-agents-exclusively-on-intel-architecture)
 - [ML-Agents Penguins tutorial](https://learn.unity.com/project/ml-agents-penguins)
 
@@ -145,12 +146,12 @@ contributions. If you wish to contribute, be sure to review our
 [contribution guidelines](com.unity.ml-agents/CONTRIBUTING.md) and
 [code of conduct](CODE_OF_CONDUCT.md).
 
-For problems with the installation and setup of the the ML-Agents Toolkit, or
+For problems with the installation and setup of the ML-Agents Toolkit, or
 discussions about how to best setup or train your agents, please create a new
 thread on the
 [Unity ML-Agents forum](https://forum.unity.com/forums/ml-agents.453/) and make
 sure to include as much detail as possible. If you run into any other problems
-using the ML-Agents Toolkit, or have a specific feature requests, please
+using the ML-Agents Toolkit or have a specific feature request, please
 [submit a GitHub issue](https://github.com/Unity-Technologies/ml-agents/issues).
 
 Your opinion matters a great deal to us. Only by hearing your thoughts on the
@@ -160,6 +161,12 @@ minutes to
 
 For any other questions or feedback, connect directly with the ML-Agents team at
 ml-agents@unity3d.com.
+
+## Privacy
+
+In order to improve the developer experience for Unity ML-Agents Toolkit, we have added in-editor analytics.
+Please refer to "Information that is passively collected by Unity" in the
+[Unity Privacy Policy](https://unity3d.com/legal/privacy-policy).
 
 ## License
 

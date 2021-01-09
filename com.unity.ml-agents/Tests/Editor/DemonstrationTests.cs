@@ -2,6 +2,7 @@ using NUnit.Framework;
 using UnityEngine;
 using System.IO.Abstractions.TestingHelpers;
 using System.Reflection;
+using Unity.MLAgents.Actuators;
 using Unity.MLAgents.CommunicatorObjects;
 using Unity.MLAgents.Sensors;
 using Unity.MLAgents.Demonstrations;
@@ -46,8 +47,7 @@ namespace Unity.MLAgents.Tests
             bp.BrainParameters.VectorObservationSize = 3;
             bp.BrainParameters.NumStackedVectorObservations = 2;
             bp.BrainParameters.VectorActionDescriptions = new[] { "TestActionA", "TestActionB" };
-            bp.BrainParameters.VectorActionSize = new[] { 2, 2 };
-            bp.BrainParameters.VectorActionSpaceType = SpaceType.Discrete;
+            bp.BrainParameters.ActionSpec = ActionSpec.MakeDiscrete(2, 2);
 
             gameobj.AddComponent<TestAgent>();
 
@@ -69,7 +69,7 @@ namespace Unity.MLAgents.Tests
                 done = true,
                 episodeId = 5,
                 maxStepReached = true,
-                storedVectorActions = new[] { 0f, 1f },
+                storedActions = new ActionBuffers(null, new[] { 0, 1 }),
             };
 
 
@@ -103,8 +103,7 @@ namespace Unity.MLAgents.Tests
             bpA.BrainParameters.VectorObservationSize = 3;
             bpA.BrainParameters.NumStackedVectorObservations = 1;
             bpA.BrainParameters.VectorActionDescriptions = new[] { "TestActionA", "TestActionB" };
-            bpA.BrainParameters.VectorActionSize = new[] { 2, 2 };
-            bpA.BrainParameters.VectorActionSpaceType = SpaceType.Discrete;
+            bpA.BrainParameters.ActionSpec = ActionSpec.MakeDiscrete(2, 2);
 
             agentGo1.AddComponent<ObservationAgent>();
             var agent1 = agentGo1.GetComponent<ObservationAgent>();
@@ -122,11 +121,11 @@ namespace Unity.MLAgents.Tests
             var agentSendInfo = typeof(Agent).GetMethod("SendInfo",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
-            agentEnableMethod?.Invoke(agent1, new object[] {});
+            agentEnableMethod?.Invoke(agent1, new object[] { });
 
             // Step the agent
             agent1.RequestDecision();
-            agentSendInfo?.Invoke(agent1, new object[] {});
+            agentSendInfo?.Invoke(agent1, new object[] { });
 
             demoRecorder.Close();
 

@@ -9,7 +9,12 @@ from typing import NamedTuple
 
 def table_line(display_name, name, date, bold=False):
     bold_str = "**" if bold else ""
-    return f"| **{display_name}** | {bold_str}{date}{bold_str} | {bold_str}[source](https://github.com/Unity-Technologies/ml-agents/tree/{name}){bold_str} | {bold_str}[docs](https://github.com/Unity-Technologies/ml-agents/tree/{name}/docs/Readme.md){bold_str} | {bold_str}[download](https://github.com/Unity-Technologies/ml-agents/archive/{name}.zip){bold_str} |"  # noqa
+    # For release_X branches, docs are on a separate tag.
+    if name.startswith("release"):
+        docs_name = name + "_docs"
+    else:
+        docs_name = name
+    return f"| **{display_name}** | {bold_str}{date}{bold_str} | {bold_str}[source](https://github.com/Unity-Technologies/ml-agents/tree/{name}){bold_str} | {bold_str}[docs](https://github.com/Unity-Technologies/ml-agents/tree/{docs_name}/docs/Readme.md){bold_str} | {bold_str}[download](https://github.com/Unity-Technologies/ml-agents/archive/{name}.zip){bold_str} |"  # noqa
 
 
 class ReleaseInfo(NamedTuple):
@@ -63,10 +68,22 @@ versions = [
     ReleaseInfo.from_simple_tag("0.15.1", "March 30, 2020"),
     ReleaseInfo("release_1", "1.0.0", "0.16.0", "April 30, 2020"),
     ReleaseInfo("release_2", "1.0.2", "0.16.1", "May 20, 2020"),
+    ReleaseInfo("release_3", "1.1.0", "0.17.0", "June 10, 2020"),
+    ReleaseInfo("release_4", "1.2.0", "0.18.0", "July 15, 2020"),
+    ReleaseInfo("release_5", "1.2.1", "0.18.1", "July 31, 2020"),
+    ReleaseInfo("release_6", "1.3.0", "0.19.0", "August 12, 2020"),
+    ReleaseInfo("release_7", "1.4.0", "0.20.0", "September 16, 2020"),
+    ReleaseInfo("release_8", "1.5.0", "0.21.0", "October 14, 2020"),
+    ReleaseInfo("release_9", "1.5.0", "0.21.1", "November 4, 2020"),
+    ReleaseInfo("release_10", "1.6.0", "0.22.0", "November 18, 2020"),
+    ReleaseInfo("release_11", "1.7.0", "0.23.0", "December 21, 2020"),
+    ReleaseInfo("release_12", "1.7.2", "0.23.0", "December 22, 2020"),
 ]
 
 MAX_DAYS = 150  # do not print releases older than this many days
-sorted_versions = sorted(versions, key=lambda x: x.loose_version, reverse=True)
+sorted_versions = sorted(
+    versions, key=lambda x: (x.loose_version, x.csharp_version), reverse=True
+)
 
 print(table_line("master (unstable)", "master", "--"))
 highlight = True  # whether to bold the line or not

@@ -8,8 +8,10 @@ import tempfile
 from mlagents_envs.communicator_objects.demonstration_meta_pb2 import (
     DemonstrationMetaProto,
 )
-
-from mlagents.trainers.brain import BrainParameters
+from mlagents.trainers.tests.mock_brain import (
+    create_mock_3dball_behavior_specs,
+    setup_test_behavior_specs,
+)
 from mlagents.trainers.demo_loader import (
     load_demonstration,
     demo_to_buffer,
@@ -17,14 +19,8 @@ from mlagents.trainers.demo_loader import (
     write_delimited,
 )
 
-BRAIN_PARAMS = BrainParameters(
-    brain_name="test_brain",
-    vector_observation_space_size=8,
-    camera_resolutions=[],
-    vector_action_space_size=[2],
-    vector_action_descriptions=[],
-    vector_action_space_type=1,
-)
+
+BEHAVIOR_SPEC = create_mock_3dball_behavior_specs()
 
 
 def test_load_demo():
@@ -32,11 +28,14 @@ def test_load_demo():
     behavior_spec, pair_infos, total_expected = load_demonstration(
         path_prefix + "/test.demo"
     )
-    assert np.sum(behavior_spec.observation_shapes[0]) == 8
+    assert np.sum(behavior_spec.sensor_specs[0].shape) == 8
     assert len(pair_infos) == total_expected
 
-    _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, BRAIN_PARAMS)
-    assert len(demo_buffer["actions"]) == total_expected - 1
+    _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, BEHAVIOR_SPEC)
+    assert (
+        len(demo_buffer["continuous_action"]) == total_expected - 1
+        or len(demo_buffer["discrete_action"]) == total_expected - 1
+    )
 
 
 def test_load_demo_dir():
@@ -44,61 +43,46 @@ def test_load_demo_dir():
     behavior_spec, pair_infos, total_expected = load_demonstration(
         path_prefix + "/test_demo_dir"
     )
-    assert np.sum(behavior_spec.observation_shapes[0]) == 8
+    assert np.sum(behavior_spec.sensor_specs[0].shape) == 8
     assert len(pair_infos) == total_expected
 
-    _, demo_buffer = demo_to_buffer(path_prefix + "/test_demo_dir", 1, BRAIN_PARAMS)
-    assert len(demo_buffer["actions"]) == total_expected - 1
+    _, demo_buffer = demo_to_buffer(path_prefix + "/test_demo_dir", 1, BEHAVIOR_SPEC)
+    assert (
+        len(demo_buffer["continuous_action"]) == total_expected - 1
+        or len(demo_buffer["discrete_action"]) == total_expected - 1
+    )
 
 
 def test_demo_mismatch():
     path_prefix = os.path.dirname(os.path.abspath(__file__))
-    # observation mismatch
+    # observation size mismatch
     with pytest.raises(RuntimeError):
-        brain_params_obs = BrainParameters(
-            brain_name="test_brain",
-            vector_observation_space_size=9,
-            camera_resolutions=[],
-            vector_action_space_size=[2],
-            vector_action_descriptions=[],
-            vector_action_space_type=1,
+        mismatch_obs = setup_test_behavior_specs(
+            False, False, vector_action_space=2, vector_obs_space=9
         )
-        _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, brain_params_obs)
+        _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, mismatch_obs)
     # action mismatch
     with pytest.raises(RuntimeError):
-        brain_params_act = BrainParameters(
-            brain_name="test_brain",
-            vector_observation_space_size=8,
-            camera_resolutions=[],
-            vector_action_space_size=[3],
-            vector_action_descriptions=[],
-            vector_action_space_type=1,
+        mismatch_act = setup_test_behavior_specs(
+            False, False, vector_action_space=3, vector_obs_space=9
         )
-        _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, brain_params_act)
+        _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, mismatch_act)
     # action type mismatch
     with pytest.raises(RuntimeError):
-        brain_params_type = BrainParameters(
-            brain_name="test_brain",
-            vector_observation_space_size=8,
-            camera_resolutions=[],
-            vector_action_space_size=[2],
-            vector_action_descriptions=[],
-            vector_action_space_type=0,
+        mismatch_act_type = setup_test_behavior_specs(
+            True, False, vector_action_space=[2], vector_obs_space=9
         )
         _, demo_buffer = demo_to_buffer(
-            path_prefix + "/test.demo", 1, brain_params_type
+            path_prefix + "/test.demo", 1, mismatch_act_type
         )
-    # vis obs mismatch
+    # number obs mismatch
     with pytest.raises(RuntimeError):
-        brain_params_vis = BrainParameters(
-            brain_name="test_brain",
-            vector_observation_space_size=8,
-            camera_resolutions=[[30, 40]],
-            vector_action_space_size=[2],
-            vector_action_descriptions=[],
-            vector_action_space_type=1,
+        mismatch_obs_number = setup_test_behavior_specs(
+            False, True, vector_action_space=2, vector_obs_space=9
         )
-        _, demo_buffer = demo_to_buffer(path_prefix + "/test.demo", 1, brain_params_vis)
+        _, demo_buffer = demo_to_buffer(
+            path_prefix + "/test.demo", 1, mismatch_obs_number
+        )
 
 
 def test_edge_cases():

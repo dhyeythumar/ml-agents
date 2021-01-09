@@ -80,18 +80,18 @@ This means that the feature vector containing the Agent's observations contains
 eight elements: the `x` and `z` components of the agent cube's rotation and the
 `x`, `y`, and `z` components of the ball's relative position and velocity.
 
-#### Behavior Parameters : Vector Action Space
+#### Behavior Parameters : Actions
 
-An Agent is given instructions in the form of a float array of _actions_.
+An Agent is given instructions in the form of actions.
 ML-Agents Toolkit classifies actions into two types: continuous and discrete.
-The 3D Balance Ball example is programmed to use continuous action space which
-is a a vector of numbers that can vary continuously. More specifically, it uses
-a `Space Size` of 2 to control the amount of `x` and `z` rotations to apply to
+The 3D Balance Ball example is programmed to use continuous actions, which
+are a vector of floating-point numbers that can vary continuously. More specifically,
+it uses a `Space Size` of 2 to control the amount of `x` and `z` rotations to apply to
 itself to keep the ball balanced on its head.
 
 ## Running a pre-trained model
 
-We include pre-trained models for our agents (`.nn` files) and we use the
+We include pre-trained models for our agents (`.onnx` files) and we use the
 [Unity Inference Engine](Unity-Inference-Engine.md) to run these models inside
 Unity. In this section, we will use the pre-trained model for the 3D Ball
 example.
@@ -124,7 +124,7 @@ example.
 
 ## Training a new model with Reinforcement Learning
 
-While we provide pre-trained `.nn` files for the agents in this environment, any
+While we provide pre-trained models for the agents in this environment, any
 environment you make yourself will require training agents from scratch to
 generate a new model file. In this section we will demonstrate how to use the
 reinforcement learning algorithms that are part of the ML-Agents Python package
@@ -159,9 +159,6 @@ Unity brain name: 3DBallLearning
         Number of Visual Observations (per agent): 0
         Vector Observation space size (per agent): 8
         Number of stacked Vector Observation: 1
-        Vector Action space type: continuous
-        Vector Action space size (per agent): [2]
-        Vector Action descriptions: ,
 INFO:mlagents_envs:Hyperparameters for the PPO Trainer of brain 3DBallLearning:
         batch_size:          64
         beta:                0.001
@@ -206,12 +203,12 @@ follow the instructions in
 ### Observing Training Progress
 
 Once you start training using `mlagents-learn` in the way described in the
-previous section, the `ml-agents` directory will contain a `summaries`
+previous section, the `ml-agents` directory will contain a `results`
 directory. In order to observe the training process in more detail, you can use
 TensorBoard. From the command line run:
 
 ```sh
-tensorboard --logdir=summaries
+tensorboard --logdir results
 ```
 
 Then navigate to `localhost:6006` in your browser to view the TensorBoard
@@ -229,17 +226,17 @@ Once the training process completes, and the training process saves the model
 use it with compatible Agents (the Agents that generated the model). **Note:**
 Do not just close the Unity Window once the `Saved Model` message appears.
 Either wait for the training process to close the window or press `Ctrl+C` at
-the command-line prompt. If you close the window manually, the `.nn` file
+the command-line prompt. If you close the window manually, the `.onnx` file
 containing the trained model is not exported into the ml-agents folder.
 
 If you've quit the training early using `Ctrl+C` and want to resume training,
 run the same command again, appending the `--resume` flag:
 
 ```sh
-mlagents-learn config/ppo/3DBall.yaml --run-id=firstRun --resume
+mlagents-learn config/ppo/3DBall.yaml --run-id=first3DBallRun --resume
 ```
 
-Your trained model will be at `results/<run-identifier>/<behavior_name>.nn` where
+Your trained model will be at `results/<run-identifier>/<behavior_name>.onnx` where
 `<behavior_name>` is the name of the `Behavior Name` of the agents corresponding
 to the model. This file corresponds to your model's latest checkpoint. You can
 now embed this trained model into your Agents by following the steps below,
@@ -249,7 +246,7 @@ which is similar to the steps described [above](#running-a-pre-trained-model).
    `Project/Assets/ML-Agents/Examples/3DBall/TFModels/`.
 1. Open the Unity Editor, and select the **3DBall** scene as described above.
 1. Select the **3DBall** prefab Agent object.
-1. Drag the `<behavior_name>.nn` file from the Project window of the Editor to
+1. Drag the `<behavior_name>.onnx` file from the Project window of the Editor to
    the **Model** placeholder in the **Ball3DAgent** inspector window.
 1. Press the **Play** button at the top of the Editor.
 

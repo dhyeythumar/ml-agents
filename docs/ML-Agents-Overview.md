@@ -13,6 +13,7 @@
   - [A Quick Note on Reward Signals](#a-quick-note-on-reward-signals)
   - [Deep Reinforcement Learning](#deep-reinforcement-learning)
     - [Curiosity for Sparse-reward Environments](#curiosity-for-sparse-reward-environments)
+    - [RND for Sparse-reward Environments](#rnd-for-sparse-reward-environments)
   - [Imitation Learning](#imitation-learning)
     - [GAIL (Generative Adversarial Imitation Learning)](#gail-generative-adversarial-imitation-learning)
     - [Behavioral Cloning (BC)](#behavioral-cloning-bc)
@@ -34,7 +35,7 @@ open-source project that enables games and simulations to serve as environments
 for training intelligent agents. Agents can be trained using reinforcement
 learning, imitation learning, neuroevolution, or other machine learning methods
 through a simple-to-use Python API. We also provide implementations (based on
-TensorFlow) of state-of-the-art algorithms to enable game developers and
+PyTorch) of state-of-the-art algorithms to enable game developers and
 hobbyists to easily train intelligent agents for 2D, 3D and VR/AR games. These
 trained agents can be used for multiple purposes, including controlling NPC
 behavior (in a variety of settings such as multi-agent and adversarial),
@@ -50,9 +51,9 @@ transition to the ML-Agents Toolkit easier, we provide several background pages
 that include overviews and helpful resources on the
 [Unity Engine](Background-Unity.md),
 [machine learning](Background-Machine-Learning.md) and
-[TensorFlow](Background-TensorFlow.md). We **strongly** recommend browsing the
+[PyTorch](Background-PyTorch.md). We **strongly** recommend browsing the
 relevant background pages if you're not familiar with a Unity scene, basic
-machine learning concepts or have not previously heard of TensorFlow.
+machine learning concepts or have not previously heard of PyTorch.
 
 The remainder of this page contains a deep dive into ML-Agents, its key
 components, different training modes and scenarios. By the end of it, you should
@@ -279,7 +280,7 @@ for additional information.
 
 ### Custom Training and Inference
 
-In the previous mode, the Agents were used for training to generate a TensorFlow
+In the previous mode, the Agents were used for training to generate a PyTorch
 model that the Agents can later use. However, any user of the ML-Agents Toolkit
 can leverage their own algorithms for training. In this case, the behaviors of
 all the Agents in the scene will be controlled within Python. You can even turn
@@ -347,7 +348,7 @@ rewards, which helps explain some of the training methods.
 
 In reinforcement learning, the end goal for the Agent is to discover a behavior
 (a Policy) that maximizes a reward. You will need to provide the agent one or
-more reward signals to use during training.Typically, a reward is defined by
+more reward signals to use during training. Typically, a reward is defined by
 your environment, and corresponds to reaching some goal. These are what we refer
 to as _extrinsic_ rewards, as they are defined external of the learning
 algorithm.
@@ -359,7 +360,7 @@ The total reward that the agent will learn to maximize can be a mix of extrinsic
 and intrinsic reward signals.
 
 The ML-Agents Toolkit allows reward signals to be defined in a modular way, and
-we provide three reward signals that can the mixed and matched to help shape
+we provide four reward signals that can the mixed and matched to help shape
 your agent's behavior:
 
 - `extrinsic`: represents the rewards defined in your environment, and is
@@ -367,6 +368,9 @@ your agent's behavior:
 - `gail`: represents an intrinsic reward signal that is defined by GAIL (see
   below)
 - `curiosity`: represents an intrinsic reward signal that encourages exploration
+  in sparse-reward environments that is defined by the Curiosity module (see
+  below).
+- `rnd`: represents an intrinsic reward signal that encourages exploration
   in sparse-reward environments that is defined by the Curiosity module (see
   below).
 
@@ -416,6 +420,22 @@ model is, the larger the reward will be.
 
 For more information, see our dedicated
 [blog post on the Curiosity module](https://blogs.unity3d.com/2018/06/26/solving-sparse-reward-tasks-with-curiosity/).
+
+#### RND for Sparse-reward Environments
+
+Similarly to Curiosity, Random Network Distillation (RND) is useful in sparse or rare
+reward environments as it helps the Agent explore. The RND Module is implemented following
+the paper [Exploration by Random Network Distillation](https://arxiv.org/abs/1810.12894).
+RND uses two networks:
+ - The first is a network with fixed random weights that takes observations as inputs and
+ generates an encoding
+ - The second is a network with similar architecture that is trained to predict the
+ outputs of the first network and uses the observations the Agent collects as training data.
+
+The loss (the squared difference between the predicted and actual encoded observations)
+of the trained model is used as intrinsic reward. The more an Agent visits a state, the
+more accurate the predictions and the lower the rewards which encourages the Agent to
+explore new states with higher prediction errors.
 
 ### Imitation Learning
 
@@ -529,10 +549,10 @@ adversarial games with
 one in which opposing agents are equal in form, function and objective. Examples
 of symmetric games are our Tennis and Soccer example environments. In
 reinforcement learning, this means both agents have the same observation and
-action spaces and learn from the same reward function and so _they can share the
+actions and learn from the same reward function and so _they can share the
 same policy_. In asymmetric games, this is not the case. An example of an
 asymmetric games are Hide and Seek. Agents in these types of games do not always
-have the same observation or action spaces and so sharing policy networks is not
+have the same observation or actions and so sharing policy networks is not
 necessarily ideal.
 
 With self-play, an agent learns in adversarial games by competing against fixed,
@@ -569,7 +589,7 @@ for later lessons. The same principle can be applied to machine learning, where
 training on easier tasks can provide a scaffolding for harder tasks in the
 future.
 
-Imagine training the medic to to scale a wall to arrive at a wounded team
+Imagine training the medic to scale a wall to arrive at a wounded team
 member. The starting point when training a medic to accomplish this task will be
 a random policy. That starting policy will have the medic running in circles,
 and will likely never, or very rarely scale the wall properly to revive their

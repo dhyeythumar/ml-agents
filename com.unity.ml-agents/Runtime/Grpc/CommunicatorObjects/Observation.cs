@@ -25,19 +25,20 @@ namespace Unity.MLAgents.CommunicatorObjects {
       byte[] descriptorData = global::System.Convert.FromBase64String(
           string.Concat(
             "CjRtbGFnZW50c19lbnZzL2NvbW11bmljYXRvcl9vYmplY3RzL29ic2VydmF0",
-            "aW9uLnByb3RvEhRjb21tdW5pY2F0b3Jfb2JqZWN0cyL5AQoQT2JzZXJ2YXRp",
+            "aW9uLnByb3RvEhRjb21tdW5pY2F0b3Jfb2JqZWN0cyK7AgoQT2JzZXJ2YXRp",
             "b25Qcm90bxINCgVzaGFwZRgBIAMoBRJEChBjb21wcmVzc2lvbl90eXBlGAIg",
             "ASgOMiouY29tbXVuaWNhdG9yX29iamVjdHMuQ29tcHJlc3Npb25UeXBlUHJv",
             "dG8SGQoPY29tcHJlc3NlZF9kYXRhGAMgASgMSAASRgoKZmxvYXRfZGF0YRgE",
             "IAEoCzIwLmNvbW11bmljYXRvcl9vYmplY3RzLk9ic2VydmF0aW9uUHJvdG8u",
-            "RmxvYXREYXRhSAAaGQoJRmxvYXREYXRhEgwKBGRhdGEYASADKAJCEgoQb2Jz",
-            "ZXJ2YXRpb25fZGF0YSopChRDb21wcmVzc2lvblR5cGVQcm90bxIICgROT05F",
-            "EAASBwoDUE5HEAFCJaoCIlVuaXR5Lk1MQWdlbnRzLkNvbW11bmljYXRvck9i",
-            "amVjdHNiBnByb3RvMw=="));
+            "RmxvYXREYXRhSAASIgoaY29tcHJlc3NlZF9jaGFubmVsX21hcHBpbmcYBSAD",
+            "KAUSHAoUZGltZW5zaW9uX3Byb3BlcnRpZXMYBiADKAUaGQoJRmxvYXREYXRh",
+            "EgwKBGRhdGEYASADKAJCEgoQb2JzZXJ2YXRpb25fZGF0YSopChRDb21wcmVz",
+            "c2lvblR5cGVQcm90bxIICgROT05FEAASBwoDUE5HEAFCJaoCIlVuaXR5Lk1M",
+            "QWdlbnRzLkNvbW11bmljYXRvck9iamVjdHNiBnByb3RvMw=="));
       descriptor = pbr::FileDescriptor.FromGeneratedCode(descriptorData,
           new pbr::FileDescriptor[] { },
           new pbr::GeneratedClrTypeInfo(new[] {typeof(global::Unity.MLAgents.CommunicatorObjects.CompressionTypeProto), }, new pbr::GeneratedClrTypeInfo[] {
-            new pbr::GeneratedClrTypeInfo(typeof(global::Unity.MLAgents.CommunicatorObjects.ObservationProto), global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Parser, new[]{ "Shape", "CompressionType", "CompressedData", "FloatData" }, new[]{ "ObservationData" }, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Types.FloatData), global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Types.FloatData.Parser, new[]{ "Data" }, null, null, null)})
+            new pbr::GeneratedClrTypeInfo(typeof(global::Unity.MLAgents.CommunicatorObjects.ObservationProto), global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Parser, new[]{ "Shape", "CompressionType", "CompressedData", "FloatData", "CompressedChannelMapping", "DimensionProperties" }, new[]{ "ObservationData" }, null, new pbr::GeneratedClrTypeInfo[] { new pbr::GeneratedClrTypeInfo(typeof(global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Types.FloatData), global::Unity.MLAgents.CommunicatorObjects.ObservationProto.Types.FloatData.Parser, new[]{ "Data" }, null, null, null)})
           }));
     }
     #endregion
@@ -79,6 +80,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
     public ObservationProto(ObservationProto other) : this() {
       shape_ = other.shape_.Clone();
       compressionType_ = other.compressionType_;
+      compressedChannelMapping_ = other.compressedChannelMapping_.Clone();
+      dimensionProperties_ = other.dimensionProperties_.Clone();
       switch (other.ObservationDataCase) {
         case ObservationDataOneofCase.CompressedData:
           CompressedData = other.CompressedData;
@@ -139,6 +142,26 @@ namespace Unity.MLAgents.CommunicatorObjects {
       }
     }
 
+    /// <summary>Field number for the "compressed_channel_mapping" field.</summary>
+    public const int CompressedChannelMappingFieldNumber = 5;
+    private static readonly pb::FieldCodec<int> _repeated_compressedChannelMapping_codec
+        = pb::FieldCodec.ForInt32(42);
+    private readonly pbc::RepeatedField<int> compressedChannelMapping_ = new pbc::RepeatedField<int>();
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    public pbc::RepeatedField<int> CompressedChannelMapping {
+      get { return compressedChannelMapping_; }
+    }
+
+    /// <summary>Field number for the "dimension_properties" field.</summary>
+    public const int DimensionPropertiesFieldNumber = 6;
+    private static readonly pb::FieldCodec<int> _repeated_dimensionProperties_codec
+        = pb::FieldCodec.ForInt32(50);
+    private readonly pbc::RepeatedField<int> dimensionProperties_ = new pbc::RepeatedField<int>();
+    [global::System.Diagnostics.DebuggerNonUserCodeAttribute]
+    public pbc::RepeatedField<int> DimensionProperties {
+      get { return dimensionProperties_; }
+    }
+
     private object observationData_;
     /// <summary>Enum of possible cases for the "observation_data" oneof.</summary>
     public enum ObservationDataOneofCase {
@@ -175,6 +198,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
       if (CompressionType != other.CompressionType) return false;
       if (CompressedData != other.CompressedData) return false;
       if (!object.Equals(FloatData, other.FloatData)) return false;
+      if(!compressedChannelMapping_.Equals(other.compressedChannelMapping_)) return false;
+      if(!dimensionProperties_.Equals(other.dimensionProperties_)) return false;
       if (ObservationDataCase != other.ObservationDataCase) return false;
       return Equals(_unknownFields, other._unknownFields);
     }
@@ -186,6 +211,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
       if (CompressionType != 0) hash ^= CompressionType.GetHashCode();
       if (observationDataCase_ == ObservationDataOneofCase.CompressedData) hash ^= CompressedData.GetHashCode();
       if (observationDataCase_ == ObservationDataOneofCase.FloatData) hash ^= FloatData.GetHashCode();
+      hash ^= compressedChannelMapping_.GetHashCode();
+      hash ^= dimensionProperties_.GetHashCode();
       hash ^= (int) observationDataCase_;
       if (_unknownFields != null) {
         hash ^= _unknownFields.GetHashCode();
@@ -213,6 +240,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
         output.WriteRawTag(34);
         output.WriteMessage(FloatData);
       }
+      compressedChannelMapping_.WriteTo(output, _repeated_compressedChannelMapping_codec);
+      dimensionProperties_.WriteTo(output, _repeated_dimensionProperties_codec);
       if (_unknownFields != null) {
         _unknownFields.WriteTo(output);
       }
@@ -231,6 +260,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
       if (observationDataCase_ == ObservationDataOneofCase.FloatData) {
         size += 1 + pb::CodedOutputStream.ComputeMessageSize(FloatData);
       }
+      size += compressedChannelMapping_.CalculateSize(_repeated_compressedChannelMapping_codec);
+      size += dimensionProperties_.CalculateSize(_repeated_dimensionProperties_codec);
       if (_unknownFields != null) {
         size += _unknownFields.CalculateSize();
       }
@@ -246,6 +277,8 @@ namespace Unity.MLAgents.CommunicatorObjects {
       if (other.CompressionType != 0) {
         CompressionType = other.CompressionType;
       }
+      compressedChannelMapping_.Add(other.compressedChannelMapping_);
+      dimensionProperties_.Add(other.dimensionProperties_);
       switch (other.ObservationDataCase) {
         case ObservationDataOneofCase.CompressedData:
           CompressedData = other.CompressedData;
@@ -289,6 +322,16 @@ namespace Unity.MLAgents.CommunicatorObjects {
             }
             input.ReadMessage(subBuilder);
             FloatData = subBuilder;
+            break;
+          }
+          case 42:
+          case 40: {
+            compressedChannelMapping_.AddEntriesFrom(input, _repeated_compressedChannelMapping_codec);
+            break;
+          }
+          case 50:
+          case 48: {
+            dimensionProperties_.AddEntriesFrom(input, _repeated_dimensionProperties_codec);
             break;
           }
         }

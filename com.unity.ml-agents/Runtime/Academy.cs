@@ -4,6 +4,7 @@ using System.Collections.Generic;
 #if UNITY_EDITOR
 using UnityEditor;
 #endif
+using Unity.MLAgents.Actuators;
 using Unity.MLAgents.Inference;
 using Unity.MLAgents.Policies;
 using Unity.MLAgents.SideChannels;
@@ -19,7 +20,7 @@ using Unity.Barracuda;
  * API. For more information on each of these entities, in addition to how to
  * set-up a learning environment and train the behavior of characters in a
  * Unity scene, please browse our documentation pages on GitHub:
- * https://github.com/Unity-Technologies/ml-agents/tree/release_2_docs/docs/
+ * https://github.com/Unity-Technologies/ml-agents/tree/release_12_docs/docs/
  */
 
 namespace Unity.MLAgents
@@ -31,7 +32,16 @@ namespace Unity.MLAgents
     {
         void FixedUpdate()
         {
-            Academy.Instance.EnvironmentStep();
+            // Check if the stepper belongs to the current Academy and destroy it if it's not.
+            // This is to prevent from having leaked stepper from previous runs.
+            if (!Academy.IsInitialized || !Academy.Instance.IsStepperOwner(this))
+            {
+                Destroy(this.gameObject);
+            }
+            else
+            {
+                Academy.Instance.EnvironmentStep();
+            }
         }
     }
 
@@ -51,7 +61,7 @@ namespace Unity.MLAgents
     /// fall back to inference or heuristic decisions. (You can also set agents to always use
     /// inference or heuristics.)
     /// </remarks>
-    [HelpURL("https://github.com/Unity-Technologies/ml-agents/tree/release_2_docs/" +
+    [HelpURL("https://github.com/Unity-Technologies/ml-agents/tree/release_12_docs/" +
         "docs/Learning-Environment-Design.md")]
     public class Academy : IDisposable
     {
@@ -62,13 +72,34 @@ namespace Unity.MLAgents
         /// functionality will work as long the major versions match.
         /// This should be changed whenever a change is made to the communication protocol.
         /// </summary>
-        const string k_ApiVersion = "1.0.0";
+        /// <remarks>
+        /// History:
+        /// <list type="bullet">
+        ///     <item>
+        ///         <term>1.0.0</term>
+        ///         <description>Initial version</description>
+        ///     </item>
+        ///     <item>
+        ///         <term>1.1.0</term>
+        ///         <description>Support concatenated PNGs for compressed observations.</description>
+        ///     </item>
+        ///     <item>
+        ///         <term>1.2.0</term>
+        ///         <description>Support compression mapping for stacked compressed observations.</description>
+        ///     </item>
+        ///     <item>
+        ///         <term>1.3.0</term>
+        ///         <description>Support both continuous and discrete actions.</description>
+        ///     </item>
+        /// </list>
+        /// </remarks>
+        const string k_ApiVersion = "1.3.0";
 
         /// <summary>
         /// Unity package version of com.unity.ml-agents.
         /// This must match the version string in package.json and is checked in a unit test.
         /// </summary>
-        internal const string k_PackageVersion = "1.0.2-preview";
+        internal const string k_PackageVersion = "1.7.2-preview";
 
         const int k_EditorTrainingPort = 5004;
 
@@ -127,6 +158,9 @@ namespace Unity.MLAgents
 
         // Flag used to keep track of the first time the Academy is reset.
         bool m_HadFirstReset;
+
+        // Detect an Academy step called by user code that is also called by the Academy.
+        private RecursionChecker m_StepRecursionChecker = new RecursionChecker("EnvironmentStep");
 
         // Random seed used for inference.
         int m_InferenceSeed;
@@ -204,7 +238,26 @@ namespace Unity.MLAgents
             Application.quitting += Dispose;
 
             LazyInitialize();
+
+#if UNITY_EDITOR
+            EditorApplication.playModeStateChanged += HandleOnPlayModeChanged;
+#endif
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Clean up the Academy when switching from edit mode to play mode
+        /// </summary>
+        /// <param name="state">State.</param>
+        void HandleOnPlayModeChanged(PlayModeStateChange state)
+        {
+            if (state == PlayModeStateChange.ExitingEditMode)
+            {
+                Dispose();
+            }
+        }
+
+#endif
 
         /// <summary>
         /// Initialize the Academy if it hasn't already been initialized.
@@ -240,7 +293,7 @@ namespace Unity.MLAgents
                 // This try-catch is because DontDestroyOnLoad cannot be used in Editor Tests
                 GameObject.DontDestroyOnLoad(m_StepperObject);
             }
-            catch {}
+            catch { }
         }
 
         /// <summary>
@@ -352,7 +405,7 @@ namespace Unity.MLAgents
 
             EnableAutomaticStepping();
 
-            SideChannelsManager.RegisterSideChannel(new EngineConfigurationChannel());
+            SideChannelManager.RegisterSideChannel(new EngineConfigurationChannel());
             m_EnvironmentParameters = new EnvironmentParameters();
             m_StatsRecorder = new StatsRecorder();
 
@@ -397,12 +450,11 @@ namespace Unity.MLAgents
                     );
                     Communicator = null;
                 }
-
-                if (Communicator != null)
-                {
-                    Communicator.QuitCommandReceived += OnQuitCommandReceived;
-                    Communicator.ResetCommandReceived += OnResetCommand;
-                }
+            }
+            if (Communicator != null)
+            {
+                Communicator.QuitCommandReceived += OnQuitCommandReceived;
+                Communicator.ResetCommandReceived += OnResetCommand;
             }
 
             // If a communicator is enabled/provided, then we assume we are in
@@ -414,13 +466,13 @@ namespace Unity.MLAgents
 
         void ResetActions()
         {
-            DecideAction = () => {};
-            DestroyAction = () => {};
-            AgentPreStep = i => {};
-            AgentSendState = () => {};
-            AgentAct = () => {};
-            AgentForceReset = () => {};
-            OnEnvironmentReset = () => {};
+            DecideAction = () => { };
+            DestroyAction = () => { };
+            AgentPreStep = i => { };
+            AgentSendState = () => { };
+            AgentAct = () => { };
+            AgentForceReset = () => { };
+            OnEnvironmentReset = () => { };
         }
 
         static void OnQuitCommandReceived()
@@ -487,36 +539,39 @@ namespace Unity.MLAgents
         /// </summary>
         public void EnvironmentStep()
         {
-            if (!m_HadFirstReset)
+            using (m_StepRecursionChecker.Start())
             {
-                ForcedFullReset();
-            }
+                if (!m_HadFirstReset)
+                {
+                    ForcedFullReset();
+                }
 
-            AgentPreStep?.Invoke(m_StepCount);
+                AgentPreStep?.Invoke(m_StepCount);
 
-            m_StepCount += 1;
-            m_TotalStepCount += 1;
-            AgentIncrementStep?.Invoke();
+                m_StepCount += 1;
+                m_TotalStepCount += 1;
+                AgentIncrementStep?.Invoke();
 
-            using (TimerStack.Instance.Scoped("AgentSendState"))
-            {
-                AgentSendState?.Invoke();
-            }
+                using (TimerStack.Instance.Scoped("AgentSendState"))
+                {
+                    AgentSendState?.Invoke();
+                }
 
-            using (TimerStack.Instance.Scoped("DecideAction"))
-            {
-                DecideAction?.Invoke();
-            }
+                using (TimerStack.Instance.Scoped("DecideAction"))
+                {
+                    DecideAction?.Invoke();
+                }
 
-            // If the communicator is not on, we need to clear the SideChannel sending queue
-            if (!IsCommunicatorOn)
-            {
-                SideChannelsManager.GetSideChannelMessage();
-            }
+                // If the communicator is not on, we need to clear the SideChannel sending queue
+                if (!IsCommunicatorOn)
+                {
+                    SideChannelManager.GetSideChannelMessage();
+                }
 
-            using (TimerStack.Instance.Scoped("AgentAct"))
-            {
-                AgentAct?.Invoke();
+                using (TimerStack.Instance.Scoped("AgentAct"))
+                {
+                    AgentAct?.Invoke();
+                }
             }
         }
 
@@ -535,18 +590,18 @@ namespace Unity.MLAgents
         /// NNModel and the InferenceDevice as provided.
         /// </summary>
         /// <param name="model">The NNModel the ModelRunner must use.</param>
-        /// <param name="brainParameters">The BrainParameters used to create the ModelRunner.</param>
+        /// <param name="actionSpec"> Description of the actions for the Agent.</param>
         /// <param name="inferenceDevice">
         /// The inference device (CPU or GPU) the ModelRunner will use.
         /// </param>
         /// <returns> The ModelRunner compatible with the input settings.</returns>
         internal ModelRunner GetOrCreateModelRunner(
-            NNModel model, BrainParameters brainParameters, InferenceDevice inferenceDevice)
+            NNModel model, ActionSpec actionSpec, InferenceDevice inferenceDevice)
         {
             var modelRunner = m_ModelRunners.Find(x => x.HasModel(model, inferenceDevice));
             if (modelRunner == null)
             {
-                modelRunner = new ModelRunner(model, brainParameters, inferenceDevice, m_InferenceSeed);
+                modelRunner = new ModelRunner(model, actionSpec, inferenceDevice, m_InferenceSeed);
                 m_ModelRunners.Add(modelRunner);
                 m_InferenceSeed++;
             }
@@ -568,7 +623,7 @@ namespace Unity.MLAgents
 
             m_EnvironmentParameters.Dispose();
             m_StatsRecorder.Dispose();
-            SideChannelsManager.UnregisterAllSideChannels();  // unregister custom side channels
+            SideChannelManager.UnregisterAllSideChannels();  // unregister custom side channels
 
             if (m_ModelRunners != null)
             {
@@ -590,6 +645,14 @@ namespace Unity.MLAgents
 
             // Reset the Lazy instance
             s_Lazy = new Lazy<Academy>(() => new Academy());
+        }
+
+        /// <summary>
+        /// Check if the input AcademyFixedUpdateStepper belongs to this Academy.
+        /// </summary>
+        internal bool IsStepperOwner(AcademyFixedUpdateStepper stepper)
+        {
+            return GameObject.ReferenceEquals(stepper.gameObject, Academy.Instance.m_StepperObject);
         }
     }
 }

@@ -23,14 +23,15 @@ from typing import (
     NamedTuple,
     Tuple,
     Optional,
-    Union,
     Dict,
     Iterator,
     Any,
     Mapping as MappingType,
 )
+from enum import IntFlag
 import numpy as np
-from enum import Enum
+
+from mlagents_envs.exception import UnityActionException
 
 AgentId = int
 BehaviorName = str
@@ -45,7 +46,7 @@ class DecisionStep(NamedTuple):
      since the last simulation step.
      - agent_id is an int and an unique identifier for the corresponding Agent.
      - action_mask is an optional list of one dimensional array of booleans.
-     Only available in multi-discrete action space type.
+     Only available when using multi-discrete actions.
      Each array corresponds to an action branch. Each array contains a mask
      for each action of the branch. If true, the action is not available for
      the agent during this simulation step.
@@ -73,7 +74,7 @@ class DecisionSteps(Mapping):
      identifier for the corresponding Agent. This is used to track Agents
      across simulation steps.
      - action_mask is an optional list of two dimensional array of booleans.
-     Only available in multi-discrete action space type.
+     Only available when using multi-discrete actions.
      Each array corresponds to an action branch. The first dimension of each
      array is the batch size and the second contains a mask for each action of
      the branch. If true, the action is not available for the agent during
@@ -109,9 +110,7 @@ class DecisionSteps(Mapping):
         :returns: The DecisionStep
         """
         if agent_id not in self.agent_id_to_index:
-            raise KeyError(
-                "agent_id {} is not present in the DecisionSteps".format(agent_id)
-            )
+            raise KeyError(f"agent_id {agent_id} is not present in the DecisionSteps")
         agent_index = self._agent_id_to_index[agent_id]  # type: ignore
         agent_obs = []
         for batched_obs in self.obs:
@@ -138,8 +137,8 @@ class DecisionSteps(Mapping):
         :param spec: The BehaviorSpec for the DecisionSteps
         """
         obs: List[np.ndarray] = []
-        for shape in spec.observation_shapes:
-            obs += [np.zeros((0,) + shape, dtype=np.float32)]
+        for sen_spec in spec.sensor_specs:
+            obs += [np.zeros((0,) + sen_spec.shape, dtype=np.float32)]
         return DecisionSteps(
             obs=obs,
             reward=np.zeros(0, dtype=np.float32),
@@ -214,9 +213,7 @@ class TerminalSteps(Mapping):
         specific agent
         """
         if agent_id not in self.agent_id_to_index:
-            raise KeyError(
-                "agent_id {} is not present in the TerminalSteps".format(agent_id)
-            )
+            raise KeyError(f"agent_id {agent_id} is not present in the TerminalSteps")
         agent_index = self._agent_id_to_index[agent_id]  # type: ignore
         agent_obs = []
         for batched_obs in self.obs:
@@ -238,8 +235,8 @@ class TerminalSteps(Mapping):
         :param spec: The BehaviorSpec for the TerminalSteps
         """
         obs: List[np.ndarray] = []
-        for shape in spec.observation_shapes:
-            obs += [np.zeros((0,) + shape, dtype=np.float32)]
+        for sen_spec in spec.sensor_specs:
+            obs += [np.zeros((0,) + sen_spec.shape, dtype=np.float32)]
         return TerminalSteps(
             obs=obs,
             reward=np.zeros(0, dtype=np.float32),
@@ -248,74 +245,245 @@ class TerminalSteps(Mapping):
         )
 
 
-class ActionType(Enum):
-    DISCRETE = 0
-    CONTINUOUS = 1
+class _ActionTupleBase(ABC):
+    """
+    An object whose fields correspond to action data of continuous and discrete
+    spaces. Dimensions are of (n_agents, continuous_size) and (n_agents, discrete_size),
+    respectively. Note, this also holds when continuous or discrete size is
+    zero.
+    """
+
+    def __init__(
+        self,
+        continuous: Optional[np.ndarray] = None,
+        discrete: Optional[np.ndarray] = None,
+    ):
+        self._continuous: Optional[np.ndarray] = None
+        self._discrete: Optional[np.ndarray] = None
+        if continuous is not None:
+            self.add_continuous(continuous)
+        if discrete is not None:
+            self.add_discrete(discrete)
+
+    @property
+    def continuous(self) -> np.ndarray:
+        return self._continuous
+
+    @property
+    def discrete(self) -> np.ndarray:
+        return self._discrete
+
+    def add_continuous(self, continuous: np.ndarray) -> None:
+        if continuous.dtype != np.float32:
+            continuous = continuous.astype(np.float32, copy=False)
+        if self._discrete is None:
+            self._discrete = np.zeros(
+                (continuous.shape[0], 0), dtype=self.discrete_dtype
+            )
+        self._continuous = continuous
+
+    def add_discrete(self, discrete: np.ndarray) -> None:
+        if discrete.dtype != self.discrete_dtype:
+            discrete = discrete.astype(self.discrete_dtype, copy=False)
+        if self._continuous is None:
+            self._continuous = np.zeros((discrete.shape[0], 0), dtype=np.float32)
+        self._discrete = discrete
+
+    @property
+    @abstractmethod
+    def discrete_dtype(self) -> np.dtype:
+        pass
+
+
+class ActionTuple(_ActionTupleBase):
+    """
+    An object whose fields correspond to actions of different types.
+    Continuous and discrete actions are numpy arrays of type float32 and
+    int32, respectively and are type checked on construction.
+    Dimensions are of (n_agents, continuous_size) and (n_agents, discrete_size),
+    respectively. Note, this also holds when continuous or discrete size is
+    zero.
+    """
+
+    @property
+    def discrete_dtype(self) -> np.dtype:
+        """
+        The dtype of a discrete action.
+        """
+        return np.int32
+
+
+class ActionSpec(NamedTuple):
+    """
+    A NamedTuple containing utility functions and information about the action spaces
+    for a group of Agents under the same behavior.
+    - num_continuous_actions is an int corresponding to the number of floats which
+    constitute the action.
+    - discrete_branch_sizes is a Tuple of int where each int corresponds to
+    the number of discrete actions available to the agent on an independent action branch.
+    """
+
+    continuous_size: int
+    discrete_branches: Tuple[int, ...]
+
+    def __eq__(self, other):
+        return (
+            self.continuous_size == other.continuous_size
+            and self.discrete_branches == other.discrete_branches
+        )
+
+    def __str__(self):
+        return f"Continuous: {self.continuous_size}, Discrete: {self.discrete_branches}"
+
+    # For backwards compatibility
+    def is_discrete(self) -> bool:
+        """
+        Returns true if this Behavior uses discrete actions
+        """
+        return self.discrete_size > 0 and self.continuous_size == 0
+
+    # For backwards compatibility
+    def is_continuous(self) -> bool:
+        """
+        Returns true if this Behavior uses continuous actions
+        """
+        return self.discrete_size == 0 and self.continuous_size > 0
+
+    @property
+    def discrete_size(self) -> int:
+        """
+        Returns a an int corresponding to the number of discrete branches.
+        """
+        return len(self.discrete_branches)
+
+    def empty_action(self, n_agents: int) -> ActionTuple:
+        """
+        Generates ActionTuple corresponding to an empty action (all zeros)
+        for a number of agents.
+        :param n_agents: The number of agents that will have actions generated
+        """
+        _continuous = np.zeros((n_agents, self.continuous_size), dtype=np.float32)
+        _discrete = np.zeros((n_agents, self.discrete_size), dtype=np.int32)
+        return ActionTuple(continuous=_continuous, discrete=_discrete)
+
+    def random_action(self, n_agents: int) -> ActionTuple:
+        """
+        Generates ActionTuple corresponding to a random action (either discrete
+        or continuous) for a number of agents.
+        :param n_agents: The number of agents that will have actions generated
+        """
+        _continuous = np.random.uniform(
+            low=-1.0, high=1.0, size=(n_agents, self.continuous_size)
+        )
+        _discrete = np.zeros((n_agents, self.discrete_size), dtype=np.int32)
+        if self.discrete_size > 0:
+            _discrete = np.column_stack(
+                [
+                    np.random.randint(
+                        0,
+                        self.discrete_branches[i],  # type: ignore
+                        size=(n_agents),
+                        dtype=np.int32,
+                    )
+                    for i in range(self.discrete_size)
+                ]
+            )
+        return ActionTuple(continuous=_continuous, discrete=_discrete)
+
+    def _validate_action(
+        self, actions: ActionTuple, n_agents: Optional[int], name: str
+    ) -> ActionTuple:
+        """
+        Validates that action has the correct action dim
+        for the correct number of agents and ensures the type.
+        """
+        _expected_shape = (
+            (n_agents, self.continuous_size)
+            if n_agents is not None
+            else (self.continuous_size,)
+        )
+        if actions.continuous.shape != _expected_shape:
+            raise UnityActionException(
+                f"The behavior {name} needs a continuous input of dimension "
+                f"{_expected_shape} for (<number of agents>, <action size>) but "
+                f"received input of dimension {actions.continuous.shape}"
+            )
+        _expected_shape = (
+            (n_agents, self.discrete_size)
+            if n_agents is not None
+            else (self.discrete_size,)
+        )
+        if actions.discrete.shape != _expected_shape:
+            raise UnityActionException(
+                f"The behavior {name} needs a discrete input of dimension "
+                f"{_expected_shape} for (<number of agents>, <action size>) but "
+                f"received input of dimension {actions.discrete.shape}"
+            )
+        return actions
+
+    @staticmethod
+    def create_continuous(continuous_size: int) -> "ActionSpec":
+        """
+        Creates an ActionSpec that is homogenously continuous
+        """
+        return ActionSpec(continuous_size, ())
+
+    @staticmethod
+    def create_discrete(discrete_branches: Tuple[int]) -> "ActionSpec":
+        """
+        Creates an ActionSpec that is homogenously discrete
+        """
+        return ActionSpec(0, discrete_branches)
+
+
+class DimensionProperty(IntFlag):
+    """
+    No properties specified.
+    """
+
+    UNSPECIFIED = 0
+    """
+    No Property of the observation in that dimension. Observation can be processed with
+    Fully connected networks.
+    """
+    NONE = 1
+    """
+    Means it is suitable to do a convolution in this dimension.
+    """
+    TRANSLATIONAL_EQUIVARIANCE = 2
+    """
+    Means that there can be a variable number of observations in this dimension.
+    The observations are unordered.
+    """
+    VARIABLE_SIZE = 4
+
+
+class SensorSpec(NamedTuple):
+    """
+    A NamedTuple containing information about the observation of Agents.
+    - shape is a Tuple of int : It corresponds to the shape of
+    an observation's dimensions.
+    - dimension_property is a Tuple of DimensionProperties flag, one flag for each
+    dimension.
+    """
+
+    shape: Tuple[int, ...]
+    dimension_property: Tuple[DimensionProperty, ...]
 
 
 class BehaviorSpec(NamedTuple):
     """
-    A NamedTuple to containing information about the observations and actions
+    A NamedTuple containing information about the observation and action
     spaces for a group of Agents under the same behavior.
-     - observation_shapes is a List of Tuples of int : Each Tuple corresponds
-     to an observation's dimensions. The shape tuples have the same ordering as
-     the ordering of the DecisionSteps and TerminalSteps.
-     - action_type is the type of data of the action. it can be discrete or
-     continuous. If discrete, the action tensors are expected to be int32. If
-     continuous, the actions are expected to be float32.
-     - action_shape is:
-       - An int in continuous action space corresponding to the number of
-     floats that constitute the action.
-       - A Tuple of int in discrete action space where each int corresponds to
-       the number of discrete actions available to the agent.
+    - sensor_specs is a List of SensorSpec NamedTuple containing
+    information about the information of the Agent's observations such as their shapes.
+    The order of the SensorSpec is the same as the order of the observations of an
+    agent.
+    - action_spec is an ActionSpec NamedTuple.
     """
 
-    observation_shapes: List[Tuple]
-    action_type: ActionType
-    action_shape: Union[int, Tuple[int, ...]]
-
-    def is_action_discrete(self) -> bool:
-        """
-        Returns true if this Behavior uses discrete actions
-        """
-        return self.action_type == ActionType.DISCRETE
-
-    def is_action_continuous(self) -> bool:
-        """
-        Returns true if this Behavior uses continuous actions
-        """
-        return self.action_type == ActionType.CONTINUOUS
-
-    @property
-    def action_size(self) -> int:
-        """
-        Returns the dimension of the action.
-         - In the continuous case, will return the number of continuous actions.
-         - In the (multi-)discrete case, will return the number of action.
-         branches.
-        """
-        if self.action_type == ActionType.DISCRETE:
-            return len(self.action_shape)  # type: ignore
-        else:
-            return self.action_shape  # type: ignore
-
-    @property
-    def discrete_action_branches(self) -> Optional[Tuple[int, ...]]:
-        """
-        Returns a Tuple of int corresponding to the number of possible actions
-        for each branch (only for discrete actions). Will return None in
-        for continuous actions.
-        """
-        if self.action_type == ActionType.DISCRETE:
-            return self.action_shape  # type: ignore
-        else:
-            return None
-
-    def create_empty_action(self, n_agents: int) -> np.ndarray:
-        if self.action_type == ActionType.DISCRETE:
-            return np.zeros((n_agents, self.action_size), dtype=np.int32)
-        else:
-            return np.zeros((n_agents, self.action_size), dtype=np.float32)
+    sensor_specs: List[SensorSpec]
+    action_spec: ActionSpec
 
 
 class BehaviorMapping(Mapping):
@@ -364,27 +532,30 @@ class BaseEnv(ABC):
         """
 
     @abstractmethod
-    def set_actions(self, behavior_name: BehaviorName, action: np.ndarray) -> None:
+    def set_actions(self, behavior_name: BehaviorName, action: ActionTuple) -> None:
         """
         Sets the action for all of the agents in the simulation for the next
         step. The Actions must be in the same order as the order received in
         the DecisionSteps.
         :param behavior_name: The name of the behavior the agents are part of
-        :param action: A two dimensional np.ndarray corresponding to the action
-        (either int or float)
+        :param action: ActionTuple tuple of continuous and/or discrete action.
+        Actions are np.arrays with dimensions  (n_agents, continuous_size) and
+        (n_agents, discrete_size), respectively.
         """
 
     @abstractmethod
     def set_action_for_agent(
-        self, behavior_name: BehaviorName, agent_id: AgentId, action: np.ndarray
+        self, behavior_name: BehaviorName, agent_id: AgentId, action: ActionTuple
     ) -> None:
         """
         Sets the action for one of the agents in the simulation for the next
         step.
         :param behavior_name: The name of the behavior the agent is part of
         :param agent_id: The id of the agent the action is set for
-        :param action: A one dimensional np.ndarray corresponding to the action
-        (either int or float)
+        :param action: ActionTuple tuple of continuous and/or discrete action
+        Actions are np.arrays with dimensions  (1, continuous_size) and
+        (1, discrete_size), respectively. Note, this initial dimensions of 1 is because
+        this action is meant for a single agent.
         """
 
     @abstractmethod

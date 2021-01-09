@@ -13,27 +13,80 @@ double-check that the versions are in the same. The versions can be found in
   ([example](https://github.com/Unity-Technologies/ml-agents/blob/b255661084cb8f701c716b040693069a3fb9a257/ml-agents-envs/mlagents/envs/environment.py#L45))
 
 # Migrating
+## Migrating to Release 11
+### Agent virtual method deprecation
+ - `Agent.CollectDiscreteActionMasks()` was deprecated and should be replaced with `Agent.WriteDiscreteActionMask()`
+ - `Agent.Heuristic(float[])` was deprecated and should be replaced with `Agent.Heuristic(ActionBuffers)`.
+ - `Agent.OnActionReceived(float[])` was deprecated and should be replaced with `Agent.OnActionReceived(ActionBuffers)`.
+ - `Agent.GetAction()` was deprecated and should be replaced with `Agent.GetStoredActionBuffers()`.
 
-## Migrating from Release 1 to latest
+The default implementation of these will continue to call the deprecated versions where appropriate. However, the
+deprecated versions may not be compatible with continuous and discrete actions on the same Agent.
+
+### BrainParameters field and method deprecation
+ - `BrainParameters.VectorActionSize` was deprecated; you can now set `BrainParameters.ActionSpec.NumContinuousActions`
+ or `BrainParameters.ActionSpec.BranchSizes` instead.
+ - `BrainParameters.VectorActionSpaceType` was deprecated, since both continuous and discrete actions can now be used.
+ - `BrainParameters.NumActions()` was deprecated. Use  `BrainParameters.ActionSpec.NumContinuousActions` and
+ `BrainParameters.ActionSpec.NumDiscreteActions` instead.
+
+## Migrating from Release 7 to latest
+
+### Important changes
+- Some trainer files were moved. If you were using the `TrainerFactory` class, it was moved to
+the `trainers/trainer` folder.
+- The `components` folder containing `bc` and `reward_signals` code was moved to the `trainers/tf`
+folder
+
+### Steps to Migrate
+- Replace calls to `from mlagents.trainers.trainer_util import TrainerFactory` to `from mlagents.trainers.trainer import TrainerFactory`
+- Replace calls to `from mlagents.trainers.trainer_util import handle_existing_directories` to `from mlagents.trainers.directory_utils import validate_existing_directories`
+- Replace `mlagents.trainers.components` with `mlagents.trainers.tf.components` in your import statements.
+
+
+## Migrating from Release 3 to Release 7
+
+### Important changes
+- The Parameter Randomization feature has been merged with the Curriculum feature. It is now possible to specify a sampler
+in the lesson of a Curriculum. Curriculum has been refactored and is now specified at the level of the parameter, not the
+behavior. More information
+[here](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Training-ML-Agents.md).(#4160)
+
+### Steps to Migrate
+- The configuration format for curriculum and parameter randomization has changed. To upgrade your configuration files,
+an upgrade script has been provided. Run `python -m mlagents.trainers.upgrade_config -h` to see the script usage. Note that you will have had to upgrade to/install the current version of ML-Agents before running the script. To update manually:
+  - If your config file used a `parameter_randomization` section, rename that section to `environment_parameters`
+  - If your config file used a `curriculum` section, you will need to rewrite your curriculum with this [format](Training-ML-Agents.md#curriculum).
+
+## Migrating from Release 1 to Release 3
 
 ### Important changes
 - Training artifacts (trained models, summaries) are now found under `results/`
   instead of `summaries/` and `models/`.
 - Trainer configuration, curriculum configuration, and parameter randomization
   configuration have all been moved to a single YAML file. (#3791)
+- Trainer configuration format has changed, and using a "default" behavior name has
+  been deprecated. (#3936)
 - `max_step` in the `TerminalStep` and `TerminalSteps` objects was renamed `interrupted`.
 - On the UnityEnvironment API, `get_behavior_names()` and `get_behavior_specs()` methods were combined into the property `behavior_specs` that contains a mapping from behavior names to behavior spec.
 - `use_visual` and `allow_multiple_visual_obs` in the `UnityToGymWrapper` constructor
 were replaced by `allow_multiple_obs` which allows one or more visual observations and
 vector observations to be used simultaneously.
+- `--save-freq` has been removed from the CLI and is now configurable in the trainer configuration
+  file.
+- `--lesson` has been removed from the CLI. Lessons will resume when using `--resume`.
+  To start at a different lesson, modify your Curriculum configuration.
 
 ### Steps to Migrate
-- Before upgrading, copy your `Behavior Name` sections from `trainer_config.yaml` into
-  a separate trainer configuration file, under a `behaviors` section. You can move the `default` section too
-  if it's being used. This file should be specific to your environment, and not contain configurations for
-  multiple environments (unless they have the same Behavior Names).
-  - If your training uses [curriculum](Training-ML-Agents.md#curriculum-learning), move those configurations under
-  the `Behavior Name` section.
+- To upgrade your configuration files, an upgrade script has been provided. Run
+  `python -m mlagents.trainers.upgrade_config -h` to see the script usage. Note that you will have
+  had to upgrade to/install the current version of ML-Agents before running the script.
+
+  To do it manually, copy your `<BehaviorName>` sections from `trainer_config.yaml` into a separate trainer configuration file, under a `behaviors` section.
+  The `default` section is no longer needed. This new file should be specific to your environment, and not contain
+  configurations for multiple environments (unless they have the same Behavior Names).
+  - You will need to reformat your trainer settings as per the [example](Training-ML-Agents.md).
+  - If your training uses [curriculum](Training-ML-Agents.md#curriculum-learning), move those configurations under a `curriculum` section.
   - If your training uses [parameter randomization](Training-ML-Agents.md#environment-parameter-randomization), move
   the contents of the sampler config to `parameter_randomization` in the main trainer configuration.
 - If you are using `UnityEnvironment` directly, replace `max_step` with `interrupted`
@@ -42,6 +95,8 @@ vector observations to be used simultaneously.
  - If you use the `UnityToGymWrapper`, remove `use_visual` and `allow_multiple_visual_obs`
  from the constructor and add `allow_multiple_obs = True` if the environment contains either
  both visual and vector observations or multiple visual observations.
+ - If you were setting `--save-freq` in the CLI, add a `checkpoint_interval` value in your
+  trainer configuration, and set it equal to `save-freq * n_agents_in_scene`.
 
 ## Migrating from 0.15 to Release 1
 
@@ -351,7 +406,7 @@ vector observations to be used simultaneously.
   `RayPerception3d.Perceive()` that was causing the `endOffset` to be used
   incorrectly. However this may produce different behavior from previous
   versions if you use a non-zero `startOffset`. To reproduce the old behavior,
-  you should increase the the value of `endOffset` by `startOffset`. You can
+  you should increase the value of `endOffset` by `startOffset`. You can
   verify your raycasts are performing as expected in scene view using the debug
   rays.
 - If you use RayPerception3D, replace it with RayPerceptionSensorComponent3D
