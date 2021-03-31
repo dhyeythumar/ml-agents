@@ -2,33 +2,39 @@ using System;
 
 namespace Unity.MLAgents.Sensors
 {
-    internal class BufferSensor : ISensor, IDimensionPropertiesSensor
+    /// <summary>
+    /// A Sensor that allows to observe a variable number of entities.
+    /// </summary>
+    public class BufferSensor : ISensor, IBuiltInSensor
     {
+        private string m_Name;
         private int m_MaxNumObs;
         private int m_ObsSize;
         float[] m_ObservationBuffer;
         int m_CurrentNumObservables;
-        public BufferSensor(int maxNumberObs, int obsSize)
+        ObservationSpec m_ObservationSpec;
+
+
+        /// <summary>
+        /// Creates the BufferSensor.
+        /// </summary>
+        /// <param name="maxNumberObs">The maximum number of observations to be appended to this BufferSensor.</param>
+        /// <param name="obsSize">The size of each observation appended to the BufferSensor.</param>
+        /// <param name="name">The name of the sensor.</param>
+        public BufferSensor(int maxNumberObs, int obsSize, string name)
         {
+            m_Name = name;
             m_MaxNumObs = maxNumberObs;
             m_ObsSize = obsSize;
             m_ObservationBuffer = new float[m_ObsSize * m_MaxNumObs];
             m_CurrentNumObservables = 0;
+            m_ObservationSpec = ObservationSpec.VariableLength(m_MaxNumObs, m_ObsSize);
         }
 
         /// <inheritdoc/>
-        public int[] GetObservationShape()
+        public ObservationSpec GetObservationSpec()
         {
-            return new int[] { m_MaxNumObs, m_ObsSize };
-        }
-
-        /// <inheritdoc/>
-        public DimensionProperty[] GetDimensionProperties()
-        {
-            return new DimensionProperty[]{
-                DimensionProperty.VariableSize,
-                DimensionProperty.None
-            };
+            return m_ObservationSpec;
         }
 
         /// <summary>
@@ -40,6 +46,13 @@ namespace Unity.MLAgents.Sensors
         /// <param name="obs"> The float array observation</param>
         public void AppendObservation(float[] obs)
         {
+            if (obs.Length != m_ObsSize)
+            {
+                throw new UnityAgentsException(
+                    "The BufferSensor was expecting an observation of size " +
+                    $"{m_ObsSize} but received {obs.Length} observations instead."
+                );
+            }
             if (m_CurrentNumObservables >= m_MaxNumObs)
             {
                 return;
@@ -80,16 +93,22 @@ namespace Unity.MLAgents.Sensors
             Array.Clear(m_ObservationBuffer, 0, m_ObservationBuffer.Length);
         }
 
-        public SensorCompressionType GetCompressionType()
+        /// <inheritdoc/>
+        public CompressionSpec GetCompressionSpec()
         {
-            return SensorCompressionType.None;
+            return CompressionSpec.Default();
         }
 
+        /// <inheritdoc/>
         public string GetName()
         {
-            return "BufferSensor";
+            return m_Name;
         }
 
+        /// <inheritdoc/>
+        public BuiltInSensorType GetBuiltInSensorType()
+        {
+            return BuiltInSensorType.BufferSensor;
+        }
     }
-
 }

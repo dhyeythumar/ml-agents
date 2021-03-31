@@ -46,7 +46,6 @@ repos:
         args: [--py3-plus, --py36-plus]
         exclude: >
             (?x)^(
-                .*barracuda.py|
                 .*_pb2.py|
                 .*_pb2_grpc.py
             )$
@@ -70,7 +69,7 @@ repos:
         args: [--assume-in-merge]
     -   id: check-yaml
         # Won't handle the templating in yamato
-        exclude: \.yamato/*
+        exclude: \.yamato/.*
 
 -   repo: https://github.com/pre-commit/pygrep-hooks
     rev: v1.4.2
@@ -83,6 +82,12 @@ repos:
   - id: search-and-replace
     types: [markdown]
     exclude: ".*localized.*"
+
+- repo: https://github.com/dotnet/format
+  rev: "7e343070a0355c86f72bdee226b5e19ffcbac931"  # TODO - update to a tagged version when one that includes the hook is ready.
+  hooks:
+  - id: dotnet-format
+    args: [--folder, --include]
 
 # "Local" hooks, see https://pre-commit.com/#repository-local-hooks
 -   repo: local
@@ -120,9 +125,3 @@ repos:
         name: validate release links
         language: script
         entry: utils/validate_release_links.py
-    -   id: dotnet-format
-        name: dotnet-format
-        language: script
-        entry: utils/run_dotnet_format.py
-        types: [c#]
-

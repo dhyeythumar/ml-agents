@@ -41,15 +41,12 @@ def _dict_to_str(param_dict: Dict[str, Any], num_tabs: int) -> str:
 
 
 class StatsSummary(NamedTuple):
-    mean: float
-    std: float
-    num: int
-    sum: float
+    full_dist: List[float]
     aggregation_method: StatsAggregationMethod
 
     @staticmethod
     def empty() -> "StatsSummary":
-        return StatsSummary(0.0, 0.0, 0, 0.0, StatsAggregationMethod.AVERAGE)
+        return StatsSummary([], StatsAggregationMethod.AVERAGE)
 
     @property
     def aggregated_value(self):
@@ -57,6 +54,22 @@ class StatsSummary(NamedTuple):
             return self.sum
         else:
             return self.mean
+
+    @property
+    def mean(self):
+        return np.mean(self.full_dist)
+
+    @property
+    def std(self):
+        return np.std(self.full_dist)
+
+    @property
+    def num(self):
+        return len(self.full_dist)
+
+    @property
+    def sum(self):
+        return np.sum(self.full_dist)
 
 
 class StatsPropertyType(Enum):
@@ -74,6 +87,13 @@ class StatsWriter(abc.ABC):
     def write_stats(
         self, category: str, values: Dict[str, StatsSummary], step: int
     ) -> None:
+        """
+        Callback to record training information
+        :param category: Category of the statistics. Usually this is the behavior name.
+        :param values: Dictionary of statistics.
+        :param step: The current training step.
+        :return:
+        """
         pass
 
     def add_property(
@@ -144,7 +164,11 @@ class ConsoleWriter(StatsWriter):
                 log_info.append(f"Rank: {self.rank}")
 
             log_info.append(f"Mean Reward: {stats_summary.mean:0.3f}")
-            log_info.append(f"Std of Reward: {stats_summary.std:0.3f}")
+            if "Environment/Group Cumulative Reward" in values:
+                group_stats_summary = values["Environment/Group Cumulative Reward"]
+                log_info.append(f"Mean Group Reward: {group_stats_summary.mean:0.3f}")
+            else:
+                log_info.append(f"Std of Reward: {stats_summary.std:0.3f}")
             log_info.append(is_training)
 
             if self.self_play and "Self-play/ELO" in values:
@@ -191,6 +215,10 @@ class TensorboardWriter(StatsWriter):
             self.summary_writers[category].add_scalar(
                 f"{key}", value.aggregated_value, step
             )
+            if value.aggregation_method == StatsAggregationMethod.HISTOGRAM:
+                self.summary_writers[category].add_histogram(
+                    f"{key}_hist", np.array(value.full_dist), step
+                )
             self.summary_writers[category].flush()
 
     def _maybe_create_summary_writer(self, category: str) -> None:
@@ -326,9 +354,6 @@ class StatsReporter:
             return StatsSummary.empty()
 
         return StatsSummary(
-            mean=np.mean(stat_values),
-            std=np.std(stat_values),
-            num=len(stat_values),
-            sum=np.sum(stat_values),
+            full_dist=stat_values,
             aggregation_method=StatsReporter.stats_aggregation[self.category][key],
         )

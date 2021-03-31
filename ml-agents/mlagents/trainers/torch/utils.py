@@ -1,5 +1,6 @@
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from mlagents.torch_utils import torch, nn
+from mlagents.trainers.torch.layers import LinearEncoder, Initialization
 import numpy as np
 
 from mlagents.trainers.torch.encoders import (
@@ -10,8 +11,9 @@ from mlagents.trainers.torch.encoders import (
     VectorInput,
 )
 from mlagents.trainers.settings import EncoderType, ScheduleType
+from mlagents.trainers.torch.attention import EntityEmbedding, ResidualSelfAttention
 from mlagents.trainers.exception import UnityTrainerException
-from mlagents_envs.base_env import SensorSpec
+from mlagents_envs.base_env import ObservationSpec, DimensionProperty
 
 
 class ModelUtils:
@@ -23,6 +25,25 @@ class ModelUtils:
         EncoderType.NATURE_CNN: 36,
         EncoderType.RESNET: 15,
     }
+
+    VALID_VISUAL_PROP = frozenset(
+        [
+            (
+                DimensionProperty.TRANSLATIONAL_EQUIVARIANCE,
+                DimensionProperty.TRANSLATIONAL_EQUIVARIANCE,
+                DimensionProperty.NONE,
+            ),
+            (DimensionProperty.UNSPECIFIED,) * 3,
+        ]
+    )
+
+    VALID_VECTOR_PROP = frozenset(
+        [(DimensionProperty.NONE,), (DimensionProperty.UNSPECIFIED,)]
+    )
+
+    VALID_VAR_LEN_PROP = frozenset(
+        [(DimensionProperty.VARIABLE_SIZE, DimensionProperty.NONE)]
+    )
 
     @staticmethod
     def update_learning_rate(optim: torch.optim.Optimizer, lr: float) -> None:
@@ -118,7 +139,7 @@ class ModelUtils:
 
     @staticmethod
     def get_encoder_for_obs(
-        shape: Tuple[int, ...],
+        obs_spec: ObservationSpec,
         normalize: bool,
         h_size: int,
         vis_encode_type: EncoderType,
@@ -130,27 +151,39 @@ class ModelUtils:
         :param h_size: Number of hidden units per layer.
         :param vis_encode_type: Type of visual encoder to use.
         """
-        if len(shape) == 1:
-            # Case rank 1 tensor
-            return (VectorInput(shape[0], normalize), shape[0])
-        if len(shape) == 3:
-            ModelUtils._check_resolution_for_encoder(
-                shape[0], shape[1], vis_encode_type
-            )
+        shape = obs_spec.shape
+        dim_prop = obs_spec.dimension_property
+
+        # VISUAL
+        if dim_prop in ModelUtils.VALID_VISUAL_PROP:
             visual_encoder_class = ModelUtils.get_encoder_for_type(vis_encode_type)
             return (visual_encoder_class(shape[0], shape[1], shape[2], h_size), h_size)
-        raise UnityTrainerException(f"Unsupported shape of {shape} for observation")
+        # VECTOR
+        if dim_prop in ModelUtils.VALID_VECTOR_PROP:
+            return (VectorInput(shape[0], normalize), shape[0])
+        # VARIABLE LENGTH
+        if dim_prop in ModelUtils.VALID_VAR_LEN_PROP:
+            return (
+                EntityEmbedding(
+                    entity_size=shape[1],
+                    entity_num_max_elements=shape[0],
+                    embedding_size=h_size,
+                ),
+                0,
+            )
+        # OTHER
+        raise UnityTrainerException(f"Unsupported Sensor with specs {obs_spec}")
 
     @staticmethod
     def create_input_processors(
-        sensor_specs: List[SensorSpec],
+        observation_specs: List[ObservationSpec],
         h_size: int,
         vis_encode_type: EncoderType,
         normalize: bool = False,
     ) -> Tuple[nn.ModuleList, List[int]]:
         """
         Creates visual and vector encoders, along with their normalizers.
-        :param sensor_specs: List of SensorSpec that represent the observation dimensions.
+        :param observation_specs: List of ObservationSpec that represent the observation dimensions.
         :param action_size: Number of additional un-normalized inputs to each vector encoder. Used for
             conditioning network on other values (e.g. actions for a Q function)
         :param h_size: Number of hidden units per layer.
@@ -158,17 +191,25 @@ class ModelUtils:
         :param unnormalized_inputs: Vector inputs that should not be normalized, and added to the vector
             obs.
         :param normalize: Normalize all vector inputs.
-        :return: Tuple of visual encoders and vector encoders each as a list.
+        :return: Tuple of :
+         - ModuleList of the encoders
+         - A list of embedding sizes (0 if the input requires to be processed with a variable length
+         observation encoder)
         """
         encoders: List[nn.Module] = []
         embedding_sizes: List[int] = []
-        for sen_spec in sensor_specs:
+        for obs_spec in observation_specs:
             encoder, embedding_size = ModelUtils.get_encoder_for_obs(
-                sen_spec.shape, normalize, h_size, vis_encode_type
+                obs_spec, normalize, h_size, vis_encode_type
             )
             encoders.append(encoder)
             embedding_sizes.append(embedding_size)
 
+        x_self_size = sum(embedding_sizes)  # The size of the "self" embedding
+        if x_self_size > 0:
+            for enc in encoders:
+                if isinstance(enc, EntityEmbedding):
+                    enc.add_self_embedding(h_size)
         return (nn.ModuleList(encoders), embedding_sizes)
 
     @staticmethod
@@ -180,6 +221,18 @@ class ModelUtils:
         calling as_tensor on the list directly.
         """
         return torch.as_tensor(np.asanyarray(ndarray_list), dtype=dtype)
+
+    @staticmethod
+    def list_to_tensor_list(
+        ndarray_list: List[np.ndarray], dtype: Optional[torch.dtype] = torch.float32
+    ) -> torch.Tensor:
+        """
+        Converts a list of numpy arrays into a list of tensors. MUCH faster than
+        calling as_tensor on the list directly.
+        """
+        return [
+            torch.as_tensor(np.asanyarray(_arr), dtype=dtype) for _arr in ndarray_list
+        ]
 
     @staticmethod
     def to_numpy(tensor: torch.Tensor) -> np.ndarray:
@@ -281,3 +334,91 @@ class ModelUtils:
                     alpha=tau,
                     out=target_param.data,
                 )
+
+    @staticmethod
+    def create_residual_self_attention(
+        input_processors: nn.ModuleList, embedding_sizes: List[int], hidden_size: int
+    ) -> Tuple[Optional[ResidualSelfAttention], Optional[LinearEncoder]]:
+        """
+        Creates an RSA if there are variable length observations found in the input processors.
+        :param input_processors: A ModuleList of input processors as returned by the function
+            create_input_processors().
+        :param embedding sizes: A List of embedding sizes as returned by create_input_processors().
+        :param hidden_size: The hidden size to use for the RSA.
+        :returns: A Tuple of the RSA itself, a self encoder, and the embedding size after the RSA.
+            Returns None for the RSA and encoder if no var len inputs are detected.
+        """
+        rsa, x_self_encoder = None, None
+        entity_num_max: int = 0
+        var_processors = [p for p in input_processors if isinstance(p, EntityEmbedding)]
+        for processor in var_processors:
+            entity_max: int = processor.entity_num_max_elements
+            # Only adds entity max if it was known at construction
+            if entity_max > 0:
+                entity_num_max += entity_max
+        if len(var_processors) > 0:
+            if sum(embedding_sizes):
+                x_self_encoder = LinearEncoder(
+                    sum(embedding_sizes),
+                    1,
+                    hidden_size,
+                    kernel_init=Initialization.Normal,
+                    kernel_gain=(0.125 / hidden_size) ** 0.5,
+                )
+            rsa = ResidualSelfAttention(hidden_size, entity_num_max)
+        return rsa, x_self_encoder
+
+    @staticmethod
+    def trust_region_value_loss(
+        values: Dict[str, torch.Tensor],
+        old_values: Dict[str, torch.Tensor],
+        returns: Dict[str, torch.Tensor],
+        epsilon: float,
+        loss_masks: torch.Tensor,
+    ) -> torch.Tensor:
+        """
+        Evaluates value loss, clipping to stay within a trust region of old value estimates.
+        Used for PPO and POCA.
+        :param values: Value output of the current network.
+        :param old_values: Value stored with experiences in buffer.
+        :param returns: Computed returns.
+        :param epsilon: Clipping value for value estimate.
+        :param loss_mask: Mask for losses. Used with LSTM to ignore 0'ed out experiences.
+        """
+        value_losses = []
+        for name, head in values.items():
+            old_val_tensor = old_values[name]
+            returns_tensor = returns[name]
+            clipped_value_estimate = old_val_tensor + torch.clamp(
+                head - old_val_tensor, -1 * epsilon, epsilon
+            )
+            v_opt_a = (returns_tensor - head) ** 2
+            v_opt_b = (returns_tensor - clipped_value_estimate) ** 2
+            value_loss = ModelUtils.masked_mean(torch.max(v_opt_a, v_opt_b), loss_masks)
+            value_losses.append(value_loss)
+        value_loss = torch.mean(torch.stack(value_losses))
+        return value_loss
+
+    @staticmethod
+    def trust_region_policy_loss(
+        advantages: torch.Tensor,
+        log_probs: torch.Tensor,
+        old_log_probs: torch.Tensor,
+        loss_masks: torch.Tensor,
+        epsilon: float,
+    ) -> torch.Tensor:
+        """
+        Evaluate policy loss clipped to stay within a trust region. Used for PPO and POCA.
+        :param advantages: Computed advantages.
+        :param log_probs: Current policy probabilities
+        :param old_log_probs: Past policy probabilities
+        :param loss_masks: Mask for losses. Used with LSTM to ignore 0'ed out experiences.
+        """
+        advantage = advantages.unsqueeze(-1)
+        r_theta = torch.exp(log_probs - old_log_probs)
+        p_opt_a = r_theta * advantage
+        p_opt_b = torch.clamp(r_theta, 1.0 - epsilon, 1.0 + epsilon) * advantage
+        policy_loss = -1 * ModelUtils.masked_mean(
+            torch.min(p_opt_a, p_opt_b), loss_masks
+        )
+        return policy_loss

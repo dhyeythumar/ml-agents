@@ -1,4 +1,5 @@
 import os
+import unittest
 from unittest import mock
 import pytest
 import mlagents.trainers.tests.mock_brain as mb
@@ -7,7 +8,7 @@ from mlagents.trainers.trainer.rl_trainer import RLTrainer
 from mlagents.trainers.tests.test_buffer import construct_fake_buffer
 from mlagents.trainers.agent_processor import AgentManagerQueue
 from mlagents.trainers.settings import TrainerSettings
-from mlagents.trainers.tests.dummy_config import create_sensor_specs_with_shapes
+from mlagents.trainers.tests.dummy_config import create_observation_specs_with_shapes
 from mlagents_envs.base_env import ActionSpec
 import os.path
 
@@ -88,7 +89,7 @@ def test_advance(mocked_clear_update_buffer, mocked_save_model):
     time_horizon = 10
     trajectory = mb.make_fake_trajectory(
         length=time_horizon,
-        sensor_specs=create_sensor_specs_with_shapes([(1,)]),
+        observation_specs=create_observation_specs_with_shapes([(1,)]),
         max_step_complete=True,
         action_spec=ActionSpec.create_discrete((2,)),
     )
@@ -137,7 +138,7 @@ def test_summary_checkpoint(mock_add_checkpoint, mock_write_summary):
     checkpoint_interval = trainer.trainer_settings.checkpoint_interval
     trajectory = mb.make_fake_trajectory(
         length=time_horizon,
-        sensor_specs=create_sensor_specs_with_shapes([(1,)]),
+        observation_specs=create_observation_specs_with_shapes([(1,)]),
         max_step_complete=True,
         action_spec=ActionSpec.create_discrete((2,)),
     )
@@ -178,3 +179,34 @@ def test_summary_checkpoint(mock_add_checkpoint, mock_write_summary):
         for step in checkpoint_range
     ]
     mock_add_checkpoint.assert_has_calls(add_checkpoint_calls)
+
+
+class RLTrainerWarningTest(unittest.TestCase):
+    def test_warning_group_reward(self):
+        with self.assertLogs("mlagents.trainers", level="WARN") as cm:
+            rl_trainer = create_rl_trainer()
+            # This one should warn
+            trajectory = mb.make_fake_trajectory(
+                length=10,
+                observation_specs=create_observation_specs_with_shapes([(1,)]),
+                max_step_complete=True,
+                action_spec=ActionSpec.create_discrete((2,)),
+                group_reward=1.0,
+            )
+            buff = trajectory.to_agentbuffer()
+            rl_trainer._warn_if_group_reward(buff)
+            assert len(cm.output) > 0
+            len_of_first_warning = len(cm.output)
+
+            rl_trainer = create_rl_trainer()
+            # This one shouldn't
+            trajectory = mb.make_fake_trajectory(
+                length=10,
+                observation_specs=create_observation_specs_with_shapes([(1,)]),
+                max_step_complete=True,
+                action_spec=ActionSpec.create_discrete((2,)),
+            )
+            buff = trajectory.to_agentbuffer()
+            rl_trainer._warn_if_group_reward(buff)
+            # Make sure warnings don't get bigger
+            assert len(cm.output) == len_of_first_warning

@@ -188,7 +188,8 @@ using the help utility:
 mlagents-learn --help
 ```
 
-These additional CLI arguments are grouped into environment, engine and checkpoint. The available settings and example values are shown below.
+These additional CLI arguments are grouped into environment, engine, checkpoint and torch.
+The available settings and example values are shown below.
 
 #### Environment settings
 
@@ -227,6 +228,13 @@ checkpoint_settings:
   inference: false
 ```
 
+#### Torch settings:
+
+```yaml
+torch_settings:
+  device: cpu
+```
+
 ### Behavior Configurations
 
 The primary section of the trainer config file is a
@@ -260,7 +268,7 @@ behaviors:
 
     # Configuration of the neural network (common to PPO/SAC)
     network_settings:
-      vis_encoder_type: simple
+      vis_encode_type: simple
       normalize: false
       hidden_units: 128
       num_layers: 2

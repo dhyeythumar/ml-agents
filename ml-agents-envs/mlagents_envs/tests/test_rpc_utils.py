@@ -1,7 +1,7 @@
 import io
 import numpy as np
 import pytest
-from typing import List, Tuple
+from typing import List, Tuple, Any
 
 from mlagents_envs.communicator_objects.agent_info_pb2 import AgentInfoProto
 from mlagents_envs.communicator_objects.observation_pb2 import (
@@ -24,12 +24,12 @@ from mlagents_envs.exception import UnityObservationException
 from mlagents_envs.rpc_utils import (
     behavior_spec_from_proto,
     process_pixels,
-    _process_visual_observation,
-    _process_vector_observation,
+    _process_maybe_compressed_observation,
+    _process_rank_one_or_two_observation,
     steps_from_proto,
 )
 from PIL import Image
-from mlagents.trainers.tests.dummy_config import create_sensor_specs_with_shapes
+from mlagents.trainers.tests.dummy_config import create_observation_specs_with_shapes
 
 
 def generate_list_agent_proto(
@@ -137,13 +137,14 @@ def proto_from_steps(
         reward = decision_steps.reward[agent_id_index]
         done = False
         max_step_reached = False
-        agent_mask = None
+        agent_mask: Any = None
         if decision_steps.action_mask is not None:
-            agent_mask = []  # type: ignore
+            agent_mask = []
             for _branch in decision_steps.action_mask:
                 agent_mask = np.concatenate(
                     (agent_mask, _branch[agent_id_index, :]), axis=0
                 )
+            agent_mask = agent_mask.astype(np.bool).tolist()
         observations: List[ObservationProto] = []
         for all_observations_of_type in decision_steps.obs:
             observation = all_observations_of_type[agent_id_index]
@@ -161,7 +162,7 @@ def proto_from_steps(
             reward=reward,
             done=done,
             id=agent_id,
-            max_step_reached=max_step_reached,
+            max_step_reached=bool(max_step_reached),
             action_mask=agent_mask,
             observations=observations,
         )
@@ -190,7 +191,7 @@ def proto_from_steps(
             reward=reward,
             done=done,
             id=agent_id,
-            max_step_reached=max_step_reached,
+            max_step_reached=bool(max_step_reached),
             action_mask=None,
             observations=final_observations,
         )
@@ -264,17 +265,21 @@ def test_process_pixels_gray():
 def test_vector_observation():
     n_agents = 10
     shapes = [(3,), (4,)]
+    obs_specs = create_observation_specs_with_shapes(shapes)
     list_proto = generate_list_agent_proto(n_agents, shapes)
     for obs_index, shape in enumerate(shapes):
-        arr = _process_vector_observation(obs_index, shape, list_proto)
+        arr = _process_rank_one_or_two_observation(
+            obs_index, obs_specs[obs_index], list_proto
+        )
         assert list(arr.shape) == ([n_agents] + list(shape))
         assert np.allclose(arr, 0.1, atol=0.01)
 
 
 def test_process_visual_observation():
-    in_array_1 = np.random.rand(128, 64, 3)
+    shape = (128, 64, 3)
+    in_array_1 = np.random.rand(*shape)
     proto_obs_1 = generate_compressed_proto_obs(in_array_1)
-    in_array_2 = np.random.rand(128, 64, 3)
+    in_array_2 = np.random.rand(*shape)
     in_array_2_mapping = [0, 1, 2]
     proto_obs_2 = generate_compressed_proto_obs_with_mapping(
         in_array_2, in_array_2_mapping
@@ -285,7 +290,8 @@ def test_process_visual_observation():
     ap2 = AgentInfoProto()
     ap2.observations.extend([proto_obs_2])
     ap_list = [ap1, ap2]
-    arr = _process_visual_observation(0, (128, 64, 3), ap_list)
+    obs_spec = create_observation_specs_with_shapes([shape])[0]
+    arr = _process_maybe_compressed_observation(0, obs_spec, ap_list)
     assert list(arr.shape) == [2, 128, 64, 3]
     assert np.allclose(arr[0, :, :, :], in_array_1, atol=0.01)
     assert np.allclose(arr[1, :, :, :], in_array_2, atol=0.01)
@@ -307,7 +313,9 @@ def test_process_visual_observation_grayscale():
     ap2 = AgentInfoProto()
     ap2.observations.extend([proto_obs_2])
     ap_list = [ap1, ap2]
-    arr = _process_visual_observation(0, (128, 64, 1), ap_list)
+    shape = (128, 64, 1)
+    obs_spec = create_observation_specs_with_shapes([shape])[0]
+    arr = _process_maybe_compressed_observation(0, obs_spec, ap_list)
     assert list(arr.shape) == [2, 128, 64, 1]
     assert np.allclose(arr[0, :, :, :], expected_out_array_1, atol=0.01)
     assert np.allclose(arr[1, :, :, :], expected_out_array_2, atol=0.01)
@@ -324,7 +332,10 @@ def test_process_visual_observation_padded_channels():
     ap1 = AgentInfoProto()
     ap1.observations.extend([proto_obs_1])
     ap_list = [ap1]
-    arr = _process_visual_observation(0, (128, 64, 8), ap_list)
+    shape = (128, 64, 8)
+    obs_spec = create_observation_specs_with_shapes([shape])[0]
+
+    arr = _process_maybe_compressed_observation(0, obs_spec, ap_list)
     assert list(arr.shape) == [1, 128, 64, 8]
     assert np.allclose(arr[0, :, :, :], expected_out_array_1, atol=0.01)
 
@@ -335,15 +346,19 @@ def test_process_visual_observation_bad_shape():
     ap1 = AgentInfoProto()
     ap1.observations.extend([proto_obs_1])
     ap_list = [ap1]
+
+    shape = (128, 42, 3)
+    obs_spec = create_observation_specs_with_shapes([shape])[0]
+
     with pytest.raises(UnityObservationException):
-        _process_visual_observation(0, (128, 42, 3), ap_list)
+        _process_maybe_compressed_observation(0, obs_spec, ap_list)
 
 
 def test_batched_step_result_from_proto():
     n_agents = 10
     shapes = [(3,), (4,)]
     spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
     )
     ap_list = generate_list_agent_proto(n_agents, shapes)
     decision_steps, terminal_steps = steps_from_proto(ap_list, spec)
@@ -369,11 +384,25 @@ def test_batched_step_result_from_proto():
     assert terminal_steps.obs[1].shape[1] == shapes[1][0]
 
 
+def test_mismatch_observations_raise_in_step_result_from_proto():
+    n_agents = 10
+    shapes = [(3,), (4,)]
+    spec = BehaviorSpec(
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
+    )
+    ap_list = generate_list_agent_proto(n_agents, shapes)
+    # Hack an observation to be larger, we should get an exception
+    ap_list[0].observations[0].shape[0] += 1
+    ap_list[0].observations[0].float_data.data.append(0.42)
+    with pytest.raises(UnityObservationException):
+        steps_from_proto(ap_list, spec)
+
+
 def test_action_masking_discrete():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_discrete((7, 3))
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_discrete((7, 3))
     )
     ap_list = generate_list_agent_proto(n_agents, shapes)
     decision_steps, terminal_steps = steps_from_proto(ap_list, behavior_spec)
@@ -391,7 +420,7 @@ def test_action_masking_discrete_1():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_discrete((10,))
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_discrete((10,))
     )
     ap_list = generate_list_agent_proto(n_agents, shapes)
     decision_steps, terminal_steps = steps_from_proto(ap_list, behavior_spec)
@@ -406,7 +435,8 @@ def test_action_masking_discrete_2():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_discrete((2, 2, 6))
+        create_observation_specs_with_shapes(shapes),
+        ActionSpec.create_discrete((2, 2, 6)),
     )
     ap_list = generate_list_agent_proto(n_agents, shapes)
     decision_steps, terminal_steps = steps_from_proto(ap_list, behavior_spec)
@@ -423,7 +453,7 @@ def test_action_masking_continuous():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_continuous(10)
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_continuous(10)
     )
     ap_list = generate_list_agent_proto(n_agents, shapes)
     decision_steps, terminal_steps = steps_from_proto(ap_list, behavior_spec)
@@ -439,7 +469,7 @@ def test_agent_behavior_spec_from_proto():
     behavior_spec = behavior_spec_from_proto(bp, agent_proto)
     assert behavior_spec.action_spec.is_discrete()
     assert not behavior_spec.action_spec.is_continuous()
-    assert [spec.shape for spec in behavior_spec.sensor_specs] == [(3,), (4,)]
+    assert [spec.shape for spec in behavior_spec.observation_specs] == [(3,), (4,)]
     assert behavior_spec.action_spec.discrete_branches == (5, 4)
     assert behavior_spec.action_spec.discrete_size == 2
     bp = BrainParametersProto()
@@ -455,7 +485,7 @@ def test_batched_step_result_from_proto_raises_on_infinite():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
     )
     ap_list = generate_list_agent_proto(n_agents, shapes, infinite_rewards=True)
     with pytest.raises(RuntimeError):
@@ -466,7 +496,7 @@ def test_batched_step_result_from_proto_raises_on_nan():
     n_agents = 10
     shapes = [(3,), (4,)]
     behavior_spec = BehaviorSpec(
-        create_sensor_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
+        create_observation_specs_with_shapes(shapes), ActionSpec.create_continuous(3)
     )
     ap_list = generate_list_agent_proto(n_agents, shapes, nan_observations=True)
     with pytest.raises(RuntimeError):

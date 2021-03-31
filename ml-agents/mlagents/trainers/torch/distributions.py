@@ -74,7 +74,7 @@ class GaussianDistInstance(DistInstance):
 
     def entropy(self):
         return torch.mean(
-            0.5 * torch.log(2 * math.pi * math.e * self.std + EPSILON),
+            0.5 * torch.log(2 * math.pi * math.e * self.std ** 2 + EPSILON),
             dim=1,
             keepdim=True,
         )  # Use equivalent behavior to TF
@@ -133,7 +133,7 @@ class CategoricalDistInstance(DiscreteDistInstance):
         ).unsqueeze(-1)
 
     def exported_model_output(self):
-        return self.all_log_prob()
+        return self.sample()
 
 
 class GaussianDistribution(nn.Module):

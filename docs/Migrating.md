@@ -12,6 +12,105 @@ double-check that the versions are in the same. The versions can be found in
 - `UnityEnvironment.API_VERSION` in environment.py
   ([example](https://github.com/Unity-Technologies/ml-agents/blob/b255661084cb8f701c716b040693069a3fb9a257/ml-agents-envs/mlagents/envs/environment.py#L45))
 
+
+# Migrating
+## Migrating the package to version 2.0
+- The official version of Unity ML-Agents supports is now 2019.4 LTS. If you run
+  into issues, please consider deleting your project's Library folder and reponening your
+  project.
+- If you used any of the APIs that were deprecated before version 2.0, you need to use their replacement. These deprecated APIs have been removed. See the migration steps bellow for specific API replacements.
+### IDiscreteActionMask changes
+- The interface for disabling specific discrete actions has changed. `IDiscreteActionMask.WriteMask()` was removed,
+and replaced with `SetActionEnabled()`. Instead of returning an IEnumerable with indices to disable, you can
+now call `SetActionEnabled` for each index to disable (or enable). As an example, if you overrode
+`Agent.WriteDiscreteActionMask()` with something that looked like:
+
+```csharp
+public override void WriteDiscreteActionMask(IDiscreteActionMask actionMask)
+{
+    var branch = 2;
+    var actionsToDisable = new[] {1, 3};
+    actionMask.WriteMask(branch, actionsToDisable);
+}
+```
+
+the equivalent code would now be
+
+```csharp
+public override void WriteDiscreteActionMask(IDiscreteActionMask actionMask)
+{
+    var branch = 2;
+    actionMask.SetActionEnabled(branch, 1, false);
+    actionMask.SetActionEnabled(branch, 3, false);
+}
+```
+### IActuator changes
+- The `IActuator` interface now implements `IHeuristicProvider`.  Please add the corresponding `Heuristic(in ActionBuffers)`
+method to your custom Actuator classes.
+
+### ISensor and SensorComponent changes
+- The `ISensor.GetObservationShape()` method and `ITypedSensor`
+and `IDimensionPropertiesSensor` interfaces were removed, and `GetObservationSpec()` was added. You can use
+`ObservationSpec.Vector()` or `ObservationSpec.Visual()` to generate `ObservationSpec`s that are equivalent to
+the previous shape. For example, if your old ISensor looked like:
+
+```csharp
+public override int[] GetObservationShape()
+{
+    return new[] { m_Height, m_Width, m_NumChannels };
+}
+```
+
+the equivalent code would now be
+
+```csharp
+public override ObservationSpec GetObservationSpec()
+{
+    return ObservationSpec.Visual(m_Height, m_Width, m_NumChannels);
+}
+```
+
+- The `ISensor.GetCompressionType()` method and `ISparseChannelSensor` interface was removed,
+and `GetCompressionSpec()` was added. You can use `CompressionSpec.Default()` or
+`CompressionSpec.Compressed()` to generate `CompressionSpec`s that are  equivalent to
+ the previous values. For example, if your old ISensor looked like:
+ ```csharp
+public virtual SensorCompressionType GetCompressionType()
+{
+    return SensorCompressionType.None;
+}
+```
+
+the equivalent code would now be
+
+```csharp
+public CompressionSpec GetCompressionSpec()
+{
+    return CompressionSpec.Default();
+}
+```
+
+- The abstract method `SensorComponent.GetObservationShape()` was removed.
+- The abstract method `SensorComponent.CreateSensor()` was replaced with `CreateSensors()`, which returns an `ISensor[]`.
+
+## Migrating to Release 13
+### Implementing IHeuristic in your IActuator implementations
+ - If you have any custom actuators, you can now implement the `IHeuristicProvider` interface to have your actuator
+  handle the generation of actions when an Agent is running in heuristic mode.
+- `VectorSensor.AddObservation(IEnumerable<float>)` is deprecated. Use `VectorSensor.AddObservation(IList<float>)`
+  instead.
+- `ObservationWriter.AddRange()` is deprecated. Use `ObservationWriter.AddList()` instead.
+- `ActuatorComponent.CreateAcuator()` is deprecated.  Please use override `ActuatorComponent.CreateActuators`
+  instead.  Since `ActuatorComponent.CreateActuator()` is abstract, you will still need to override it in your
+  class until it is removed.  It is only ever called if you don't override `ActuatorComponent.CreateActuators`.
+  You can suppress the warnings by surrounding the method with the following pragma:
+    ```c#
+    #pragma warning disable 672
+    public IActuator CreateActuator() { ... }
+    #pragma warning restore 672
+    ```
+
+
 # Migrating
 ## Migrating to Release 11
 ### Agent virtual method deprecation
@@ -50,7 +149,7 @@ folder
 - The Parameter Randomization feature has been merged with the Curriculum feature. It is now possible to specify a sampler
 in the lesson of a Curriculum. Curriculum has been refactored and is now specified at the level of the parameter, not the
 behavior. More information
-[here](https://github.com/Unity-Technologies/ml-agents/blob/master/docs/Training-ML-Agents.md).(#4160)
+[here](https://github.com/Unity-Technologies/ml-agents/blob/main/docs/Training-ML-Agents.md).(#4160)
 
 ### Steps to Migrate
 - The configuration format for curriculum and parameter randomization has changed. To upgrade your configuration files,

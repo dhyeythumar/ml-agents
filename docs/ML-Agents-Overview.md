@@ -20,12 +20,14 @@
     - [Recording Demonstrations](#recording-demonstrations)
   - [Summary](#summary)
 - [Training Methods: Environment-specific](#training-methods-environment-specific)
-  - [Training in Multi-Agent Environments with Self-Play](#training-in-multi-agent-environments-with-self-play)
+  - [Training in Competitive Multi-Agent Environments with Self-Play](#training-in-competitive-multi-agent-environments-with-self-play)
+  - [Training in Cooperative Multi-Agent Environments with MA-POCA](#training-in-cooperative-multi-agent-environments-with-ma-poca)
   - [Solving Complex Tasks using Curriculum Learning](#solving-complex-tasks-using-curriculum-learning)
   - [Training Robust Agents using Environment Parameter Randomization](#training-robust-agents-using-environment-parameter-randomization)
 - [Model Types](#model-types)
   - [Learning from Vector Observations](#learning-from-vector-observations)
   - [Learning from Cameras using Convolutional Neural Networks](#learning-from-cameras-using-convolutional-neural-networks)
+  - [Learning from Variable Length Observations using Attention](#learning-from-ariable-length-observations-using-attention)
   - [Memory-enhanced Agents using Recurrent Neural Networks](#memory-enhanced-agents-using-recurrent-neural-networks)
 - [Additional Features](#additional-features)
 - [Summary and Next Steps](#summary-and-next-steps)
@@ -472,12 +474,23 @@ Learning (GAIL). In most scenarios, you can combine these two features:
 - If you want to help your agents learn (especially with environments that have
   sparse rewards) using pre-recorded demonstrations, you can generally enable
   both GAIL and Behavioral Cloning at low strengths in addition to having an
-  extrinsic reward. An example of this is provided for the Pyramids example
-  environment under `PyramidsLearning` in `config/gail_config.yaml`.
-- If you want to train purely from demonstrations, GAIL and BC _without_ an
-  extrinsic reward signal is the preferred approach. An example of this is
-  provided for the Crawler example environment under `CrawlerStaticLearning` in
-  `config/gail_config.yaml`.
+  extrinsic reward. An example of this is provided for the PushBlock example
+  environment in `config/imitation/PushBlock.yaml`.
+- If you want to train purely from demonstrations with GAIL and BC _without_ an
+  extrinsic reward signal, please see the CrawlerStatic example environment under
+  in `config/imitation/CrawlerStatic.yaml`.
+
+***Note:*** GAIL introduces a [_survivor bias_](https://arxiv.org/pdf/1809.02925.pdf)
+to the learning process. That is, by giving positive rewards based on similarity
+to the expert, the agent is incentivized to remain alive for as long as possible.
+This can directly conflict with goal-oriented tasks like our PushBlock or Pyramids
+example environments where an agent must reach a goal state thus ending the
+episode as quickly as possible. In these cases, we strongly recommend that you
+use a low strength GAIL reward signal and a sparse extrinisic signal when
+the agent achieves the task. This way, the GAIL reward signal will guide the
+agent until it discovers the extrnisic signal and will not overpower it. If the
+agent appears to be ignoring the extrinsic reward signal, you should reduce
+the strength of GAIL.
 
 #### GAIL (Generative Adversarial Imitation Learning)
 
@@ -541,7 +554,7 @@ In addition to the three environment-agnostic training methods introduced in the
 previous section, the ML-Agents Toolkit provides additional methods that can aid
 in training behaviors for specific types of environments.
 
-### Training in Multi-Agent Environments with Self-Play
+### Training in Competitive Multi-Agent Environments with Self-Play
 
 ML-Agents provides the functionality to train both symmetric and asymmetric
 adversarial games with
@@ -575,6 +588,37 @@ page for more information on setting up teams in your Unity scene. Also, read
 our
 [blog post on self-play](https://blogs.unity3d.com/2020/02/28/training-intelligent-adversaries-using-self-play-with-ml-agents/)
 for additional information.
+
+### Training In Cooperative Multi-Agent Environments with MA-POCA
+
+![PushBlock with Agents Working Together](images/cooperative_pushblock.png)
+
+ML-Agents provides the functionality for training cooperative behaviors - i.e.,
+groups of agents working towards a common goal, where the success of the individual
+is linked to the success of the whole group. In such a scenario, agents typically receive
+rewards as a group. For instance, if a team of agents wins a game against an opposing
+team, everyone is rewarded - even agents who did not directly contribute to the win. This
+makes learning what to do as an individual difficult - you may get a win
+for doing nothing, and a loss for doing your best.
+
+In ML-Agents, we provide MA-POCA (MultiAgent POsthumous Credit Assignment), which
+is a novel multi-agent trainer that trains a _centralized critic_, a neural network
+that acts as a "coach" for a whole group of agents. You can then give rewards to the team
+as a whole, and the agents will learn how best to contribute to achieving that reward.
+Agents can _also_ be given rewards individually, and the team will work together to help the
+individual achieve those goals. During an episode, agents can be added or removed from the group,
+such as when agents spawn or die in a game. If agents are removed mid-episode (e.g., if teammates die
+or are removed from the game), they will still learn whether their actions contributed
+to the team winning later, enabling agents to take group-beneficial actions even if
+they result in the individual being removed from the game (i.e., self-sacrifice).
+MA-POCA can also be combined with self-play to train teams of agents to play against each other.
+
+To learn more about enabling cooperative behaviors for agents in an ML-Agents environment,
+check out [this page](Learning-Environment-Design-Agents.md#groups-for-cooperative-scenarios).
+
+For further reading, MA-POCA builds on previous work in multi-agent cooperative learning
+([Lowe et al.](https://arxiv.org/abs/1706.02275), [Foerster et al.](https://arxiv.org/pdf/1705.08926.pdf),
+among others) to enable the above use-cases.
 
 ### Solving Complex Tasks using Curriculum Learning
 
@@ -646,7 +690,7 @@ are `gravity`, `ball_mass` and `ball_scale`._
 
 Regardless of the training method deployed, there are a few model types that
 users can train using the ML-Agents Toolkit. This is due to the flexibility in
-defining agent observations, which can include vector, ray cast and visual
+defining agent observations, which include vector, ray cast and visual
 observations. You can learn more about how to instrument an agent's observation
 in the [Designing Agents](Learning-Environment-Design-Agents.md) guide.
 
@@ -683,6 +727,28 @@ three network architectures:
 
 The choice of the architecture depends on the visual complexity of the scene and
 the available computational resources.
+
+### Learning from Variable Length Observations using Attention
+
+Using the ML-Agents Toolkit, it is possible to have agents learn from a
+varying number of inputs. To do so, each agent can keep track of a buffer
+of vector observations. At each step, the agent will go through all the
+elements in the buffer and extract information but the elements
+in the buffer can change at every step.
+This can be useful in scenarios in which the agents must keep track of
+a varying number of elements throughout the episode. For example in a game
+where an agent must learn to avoid projectiles, but the projectiles can vary in
+numbers.
+
+![Variable Length Observations Illustrated](images/variable-length-observation-illustrated.png)
+
+You can learn more about variable length observations
+[here](Learning-Environment-Design-Agents.md#variable-length-observations).
+When variable length observations are utilized, the ML-Agents Toolkit
+leverages attention networks to learn from a varying number of entities.
+Agents using attention will ignore entities that are deemed not relevant
+and pay special attention to entities relevant to the current situation
+based on context.
 
 ### Memory-enhanced Agents using Recurrent Neural Networks
 

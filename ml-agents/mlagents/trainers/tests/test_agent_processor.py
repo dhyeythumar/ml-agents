@@ -1,5 +1,6 @@
 from unittest import mock
 import pytest
+from typing import List
 import mlagents.trainers.tests.mock_brain as mb
 import numpy as np
 from mlagents.trainers.agent_processor import (
@@ -13,16 +14,40 @@ from mlagents.trainers.trajectory import Trajectory
 from mlagents.trainers.stats import StatsReporter, StatsSummary
 from mlagents.trainers.behavior_id_utils import get_global_agent_id
 from mlagents_envs.side_channel.stats_side_channel import StatsAggregationMethod
-from mlagents.trainers.tests.dummy_config import create_sensor_specs_with_shapes
+from mlagents.trainers.tests.dummy_config import create_observation_specs_with_shapes
 from mlagents_envs.base_env import ActionSpec, ActionTuple
 
 
 def create_mock_policy():
     mock_policy = mock.Mock()
     mock_policy.reward_signals = {}
-    mock_policy.retrieve_memories.return_value = np.zeros((1, 1), dtype=np.float32)
+    mock_policy.retrieve_previous_memories.return_value = np.zeros(
+        (1, 1), dtype=np.float32
+    )
     mock_policy.retrieve_previous_action.return_value = np.zeros((1, 1), dtype=np.int32)
     return mock_policy
+
+
+def _create_action_info(num_agents: int, agent_ids: List[str]) -> ActionInfo:
+    fake_action_outputs = {
+        "action": ActionTuple(
+            continuous=np.array([[0.1]] * num_agents, dtype=np.float32)
+        ),
+        "entropy": np.array([1.0], dtype=np.float32),
+        "learning_rate": 1.0,
+        "log_probs": LogProbsTuple(
+            continuous=np.array([[0.1]] * num_agents, dtype=np.float32)
+        ),
+    }
+    fake_action_info = ActionInfo(
+        action=ActionTuple(continuous=np.array([[0.1]] * num_agents, dtype=np.float32)),
+        env_action=ActionTuple(
+            continuous=np.array([[0.1]] * num_agents, dtype=np.float32)
+        ),
+        outputs=fake_action_outputs,
+        agent_ids=agent_ids,
+    )
+    return fake_action_info
 
 
 @pytest.mark.parametrize("num_vis_obs", [0, 1, 2], ids=["vec", "1 viz", "2 viz"])
@@ -37,26 +62,14 @@ def test_agentprocessor(num_vis_obs):
         stats_reporter=StatsReporter("testcat"),
     )
 
-    fake_action_outputs = {
-        "action": ActionTuple(continuous=np.array([[0.1], [0.1]])),
-        "entropy": np.array([1.0], dtype=np.float32),
-        "learning_rate": 1.0,
-        "log_probs": LogProbsTuple(continuous=np.array([[0.1], [0.1]])),
-    }
     mock_decision_steps, mock_terminal_steps = mb.create_mock_steps(
         num_agents=2,
-        sensor_specs=create_sensor_specs_with_shapes(
+        observation_specs=create_observation_specs_with_shapes(
             [(8,)] + num_vis_obs * [(84, 84, 3)]
         ),
         action_spec=ActionSpec.create_continuous(2),
     )
-    fake_action_info = ActionInfo(
-        action=ActionTuple(continuous=np.array([[0.1], [0.1]])),
-        env_action=ActionTuple(continuous=np.array([[0.1], [0.1]])),
-        value=[0.1, 0.1],
-        outputs=fake_action_outputs,
-        agent_ids=mock_decision_steps.agent_id,
-    )
+    fake_action_info = _create_action_info(2, mock_decision_steps.agent_id)
     processor.publish_trajectory_queue(tqueue)
     # This is like the initial state after the env reset
     processor.add_experiences(
@@ -73,14 +86,17 @@ def test_agentprocessor(num_vis_obs):
     # Assert that the trajectory is of length 5
     trajectory = tqueue.put.call_args_list[0][0][0]
     assert len(trajectory.steps) == 5
+    # Make sure ungrouped agents don't have team obs
+    for step in trajectory.steps:
+        assert len(step.group_status) == 0
 
     # Assert that the AgentProcessor is empty
-    assert len(processor.experience_buffers[0]) == 0
+    assert len(processor._experience_buffers[0]) == 0
 
     # Test empty steps
     mock_decision_steps, mock_terminal_steps = mb.create_mock_steps(
         num_agents=0,
-        sensor_specs=create_sensor_specs_with_shapes(
+        observation_specs=create_observation_specs_with_shapes(
             [(8,)] + num_vis_obs * [(84, 84, 3)]
         ),
         action_spec=ActionSpec.create_continuous(2),
@@ -89,7 +105,66 @@ def test_agentprocessor(num_vis_obs):
         mock_decision_steps, mock_terminal_steps, 0, ActionInfo.empty()
     )
     # Assert that the AgentProcessor is still empty
-    assert len(processor.experience_buffers[0]) == 0
+    assert len(processor._experience_buffers[0]) == 0
+
+
+def test_group_statuses():
+    policy = create_mock_policy()
+    tqueue = mock.Mock()
+    name_behavior_id = "test_brain_name"
+    processor = AgentProcessor(
+        policy,
+        name_behavior_id,
+        max_trajectory_length=5,
+        stats_reporter=StatsReporter("testcat"),
+    )
+
+    mock_decision_steps, mock_terminal_steps = mb.create_mock_steps(
+        num_agents=4,
+        observation_specs=create_observation_specs_with_shapes([(8,)]),
+        action_spec=ActionSpec.create_continuous(2),
+        grouped=True,
+    )
+    fake_action_info = _create_action_info(4, mock_decision_steps.agent_id)
+    processor.publish_trajectory_queue(tqueue)
+    # This is like the initial state after the env reset
+    processor.add_experiences(
+        mock_decision_steps, mock_terminal_steps, 0, ActionInfo.empty()
+    )
+    for _ in range(2):
+        processor.add_experiences(
+            mock_decision_steps, mock_terminal_steps, 0, fake_action_info
+        )
+
+    # Make terminal steps for some dead agents
+    mock_decision_steps_2, mock_terminal_steps_2 = mb.create_mock_steps(
+        num_agents=2,
+        observation_specs=create_observation_specs_with_shapes([(8,)]),
+        action_spec=ActionSpec.create_continuous(2),
+        done=True,
+        grouped=True,
+    )
+
+    processor.add_experiences(
+        mock_decision_steps_2, mock_terminal_steps_2, 0, fake_action_info
+    )
+    fake_action_info = _create_action_info(4, mock_decision_steps.agent_id)
+    for _ in range(3):
+        processor.add_experiences(
+            mock_decision_steps, mock_terminal_steps, 0, fake_action_info
+        )
+
+    # Assert that four trajectories have been added to the Trainer
+    assert len(tqueue.put.call_args_list) == 4
+    # Last trajectory should be the longest
+    trajectory = tqueue.put.call_args_list[0][0][-1]
+
+    # Make sure trajectory has the right Groupmate Experiences
+    for step in trajectory.steps[0:3]:
+        assert len(step.group_status) == 3
+    # After 2 agents has died
+    for step in trajectory.steps[3:]:
+        assert len(step.group_status) == 1
 
 
 def test_agent_deletion():
@@ -103,27 +178,26 @@ def test_agent_deletion():
         stats_reporter=StatsReporter("testcat"),
     )
     fake_action_outputs = {
-        "action": ActionTuple(continuous=np.array([[0.1]])),
+        "action": ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
         "entropy": np.array([1.0], dtype=np.float32),
         "learning_rate": 1.0,
-        "log_probs": LogProbsTuple(continuous=np.array([[0.1]])),
+        "log_probs": LogProbsTuple(continuous=np.array([[0.1]], dtype=np.float32)),
     }
 
     mock_decision_step, mock_terminal_step = mb.create_mock_steps(
         num_agents=1,
-        sensor_specs=create_sensor_specs_with_shapes([(8,)]),
+        observation_specs=create_observation_specs_with_shapes([(8,)]),
         action_spec=ActionSpec.create_continuous(2),
     )
     mock_done_decision_step, mock_done_terminal_step = mb.create_mock_steps(
         num_agents=1,
-        sensor_specs=create_sensor_specs_with_shapes([(8,)]),
+        observation_specs=create_observation_specs_with_shapes([(8,)]),
         action_spec=ActionSpec.create_continuous(2),
         done=True,
     )
     fake_action_info = ActionInfo(
-        action=ActionTuple(continuous=np.array([[0.1]])),
-        env_action=ActionTuple(continuous=np.array([[0.1]])),
-        value=[0.1],
+        action=ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
+        env_action=ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
         outputs=fake_action_outputs,
         agent_ids=mock_decision_step.agent_id,
     )
@@ -154,21 +228,21 @@ def test_agent_deletion():
     policy.save_previous_action.assert_has_calls(add_calls)
     policy.remove_previous_action.assert_has_calls(remove_calls)
     # Check that there are no experiences left
-    assert len(processor.experience_buffers.keys()) == 0
-    assert len(processor.last_take_action_outputs.keys()) == 0
-    assert len(processor.episode_steps.keys()) == 0
-    assert len(processor.episode_rewards.keys()) == 0
-    assert len(processor.last_step_result.keys()) == 0
+    assert len(processor._experience_buffers.keys()) == 0
+    assert len(processor._last_take_action_outputs.keys()) == 0
+    assert len(processor._episode_steps.keys()) == 0
+    assert len(processor._episode_rewards.keys()) == 0
+    assert len(processor._last_step_result.keys()) == 0
 
     # check that steps with immediate dones don't add to dicts
     processor.add_experiences(
         mock_done_decision_step, mock_done_terminal_step, 0, ActionInfo.empty()
     )
-    assert len(processor.experience_buffers.keys()) == 0
-    assert len(processor.last_take_action_outputs.keys()) == 0
-    assert len(processor.episode_steps.keys()) == 0
-    assert len(processor.episode_rewards.keys()) == 0
-    assert len(processor.last_step_result.keys()) == 0
+    assert len(processor._experience_buffers.keys()) == 0
+    assert len(processor._last_take_action_outputs.keys()) == 0
+    assert len(processor._episode_steps.keys()) == 0
+    assert len(processor._episode_rewards.keys()) == 0
+    assert len(processor._last_step_result.keys()) == 0
 
 
 def test_end_episode():
@@ -182,21 +256,20 @@ def test_end_episode():
         stats_reporter=StatsReporter("testcat"),
     )
     fake_action_outputs = {
-        "action": ActionTuple(continuous=np.array([[0.1]])),
+        "action": ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
         "entropy": np.array([1.0], dtype=np.float32),
         "learning_rate": 1.0,
-        "log_probs": LogProbsTuple(continuous=np.array([[0.1]])),
+        "log_probs": LogProbsTuple(continuous=np.array([[0.1]], dtype=np.float32)),
     }
 
     mock_decision_step, mock_terminal_step = mb.create_mock_steps(
         num_agents=1,
-        sensor_specs=create_sensor_specs_with_shapes([(8,)]),
+        observation_specs=create_observation_specs_with_shapes([(8,)]),
         action_spec=ActionSpec.create_continuous(2),
     )
     fake_action_info = ActionInfo(
-        action=ActionTuple(continuous=np.array([[0.1]])),
-        env_action=ActionTuple(continuous=np.array([[0.1]])),
-        value=[0.1],
+        action=ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
+        env_action=ActionTuple(continuous=np.array([[0.1]], dtype=np.float32)),
         outputs=fake_action_outputs,
         agent_ids=mock_decision_step.agent_id,
     )
@@ -221,10 +294,10 @@ def test_end_episode():
     # Check that we removed every agent
     policy.remove_previous_action.assert_has_calls(remove_calls)
     # Check that there are no experiences left
-    assert len(processor.experience_buffers.keys()) == 0
-    assert len(processor.last_take_action_outputs.keys()) == 0
-    assert len(processor.episode_steps.keys()) == 0
-    assert len(processor.episode_rewards.keys()) == 0
+    assert len(processor._experience_buffers.keys()) == 0
+    assert len(processor._last_take_action_outputs.keys()) == 0
+    assert len(processor._episode_steps.keys()) == 0
+    assert len(processor._episode_rewards.keys()) == 0
 
 
 def test_agent_manager():
@@ -236,8 +309,8 @@ def test_agent_manager():
         max_trajectory_length=5,
         stats_reporter=StatsReporter("testcat"),
     )
-    assert len(manager.trajectory_queues) == 1
-    assert isinstance(manager.trajectory_queues[0], AgentManagerQueue)
+    assert len(manager._trajectory_queues) == 1
+    assert isinstance(manager._trajectory_queues[0], AgentManagerQueue)
 
 
 def test_agent_manager_queue():
@@ -275,25 +348,13 @@ def test_agent_manager_stats():
 
     expected_stats = {
         "averaged": StatsSummary(
-            mean=2.0,
-            std=mock.ANY,
-            num=2,
-            sum=4.0,
-            aggregation_method=StatsAggregationMethod.AVERAGE,
+            full_dist=[1.0, 3.0], aggregation_method=StatsAggregationMethod.AVERAGE
         ),
         "most_recent": StatsSummary(
-            mean=4.0,
-            std=0.0,
-            num=1,
-            sum=4.0,
-            aggregation_method=StatsAggregationMethod.MOST_RECENT,
+            full_dist=[4.0], aggregation_method=StatsAggregationMethod.MOST_RECENT
         ),
         "summed": StatsSummary(
-            mean=2.1,
-            std=mock.ANY,
-            num=2,
-            sum=4.2,
-            aggregation_method=StatsAggregationMethod.SUM,
+            full_dist=[3.1, 1.1], aggregation_method=StatsAggregationMethod.SUM
         ),
     }
     stats_reporter.write_stats(123)
