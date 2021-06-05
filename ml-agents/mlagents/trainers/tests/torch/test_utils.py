@@ -36,6 +36,29 @@ def test_min_visual_size():
             enc.forward(vis_input)
 
 
+@pytest.mark.parametrize(
+    "encoder_type",
+    [
+        EncoderType.SIMPLE,
+        EncoderType.NATURE_CNN,
+        EncoderType.SIMPLE,
+        EncoderType.MATCH3,
+    ],
+)
+def test_invalid_visual_input_size(encoder_type):
+    with pytest.raises(UnityTrainerException):
+        obs_spec = create_observation_specs_with_shapes(
+            [
+                (
+                    ModelUtils.MIN_RESOLUTION_FOR_ENCODER[encoder_type] - 1,
+                    ModelUtils.MIN_RESOLUTION_FOR_ENCODER[encoder_type],
+                    1,
+                )
+            ]
+        )
+        ModelUtils.create_input_processors(obs_spec, 20, encoder_type, 20, False)
+
+
 @pytest.mark.parametrize("num_visual", [0, 1, 2])
 @pytest.mark.parametrize("num_vector", [0, 1, 2])
 @pytest.mark.parametrize("normalize", [True, False])
@@ -51,7 +74,7 @@ def test_create_inputs(encoder_type, normalize, num_vector, num_visual):
     h_size = 128
     obs_spec = create_observation_specs_with_shapes(obs_shapes)
     encoders, embedding_sizes = ModelUtils.create_input_processors(
-        obs_spec, h_size, encoder_type, normalize
+        obs_spec, h_size, encoder_type, h_size, normalize
     )
     total_output = sum(embedding_sizes)
     vec_enc = []

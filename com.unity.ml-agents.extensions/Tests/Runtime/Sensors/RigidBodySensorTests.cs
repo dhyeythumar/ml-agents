@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using UnityEngine;
 using NUnit.Framework;
 using Unity.MLAgents.Sensors;
@@ -32,6 +31,7 @@ namespace Unity.MLAgents.Extensions.Tests.Sensors
             var gameObj = new GameObject();
 
             var sensorComponent = gameObj.AddComponent<RigidBodySensorComponent>();
+            Assert.IsFalse(sensorComponent.IsTrivial());
             var sensor = sensorComponent.CreateSensors()[0];
             SensorTestHelper.CompareObservation(sensor, new float[0]);
         }
@@ -49,6 +49,7 @@ namespace Unity.MLAgents.Extensions.Tests.Sensors
                 UseLocalSpaceTranslations = true,
                 UseLocalSpaceRotations = true
             };
+            Assert.IsTrue(sensorComponent.IsTrivial());
 
             var sensor = sensorComponent.CreateSensors()[0];
             sensor.Update();
@@ -94,6 +95,7 @@ namespace Unity.MLAgents.Extensions.Tests.Sensors
                 UseLocalSpaceLinearVelocity = true
             };
             sensorComponent.VirtualRoot = virtualRoot;
+            Assert.IsFalse(sensorComponent.IsTrivial());
 
             var sensor = sensorComponent.CreateSensors()[0];
             sensor.Update();

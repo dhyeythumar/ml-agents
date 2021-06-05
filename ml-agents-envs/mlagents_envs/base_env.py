@@ -1,5 +1,5 @@
 """
-Python Environment API for the ML-Agents toolkit
+Python Environment API for the ML-Agents Toolkit
 The aim of this API is to expose Agents evolving in a simulation
 to perform reinforcement learning on.
 This API supports multi-agent scenarios and groups similar Agents (same
@@ -410,28 +410,20 @@ class ActionSpec(NamedTuple):
         return ActionTuple(continuous=_continuous, discrete=_discrete)
 
     def _validate_action(
-        self, actions: ActionTuple, n_agents: Optional[int], name: str
+        self, actions: ActionTuple, n_agents: int, name: str
     ) -> ActionTuple:
         """
         Validates that action has the correct action dim
         for the correct number of agents and ensures the type.
         """
-        _expected_shape = (
-            (n_agents, self.continuous_size)
-            if n_agents is not None
-            else (self.continuous_size,)
-        )
+        _expected_shape = (n_agents, self.continuous_size)
         if actions.continuous.shape != _expected_shape:
             raise UnityActionException(
                 f"The behavior {name} needs a continuous input of dimension "
                 f"{_expected_shape} for (<number of agents>, <action size>) but "
                 f"received input of dimension {actions.continuous.shape}"
             )
-        _expected_shape = (
-            (n_agents, self.discrete_size)
-            if n_agents is not None
-            else (self.discrete_size,)
-        )
+        _expected_shape = (n_agents, self.discrete_size)
         if actions.discrete.shape != _expected_shape:
             raise UnityActionException(
                 f"The behavior {name} needs a discrete input of dimension "
@@ -457,24 +449,30 @@ class ActionSpec(NamedTuple):
 
 class DimensionProperty(IntFlag):
     """
-    No properties specified.
+    The dimension property of a dimension of an observation.
     """
 
     UNSPECIFIED = 0
     """
+    No properties specified.
+    """
+
+    NONE = 1
+    """
     No Property of the observation in that dimension. Observation can be processed with
     Fully connected networks.
     """
-    NONE = 1
+
+    TRANSLATIONAL_EQUIVARIANCE = 2
     """
     Means it is suitable to do a convolution in this dimension.
     """
-    TRANSLATIONAL_EQUIVARIANCE = 2
+
+    VARIABLE_SIZE = 4
     """
     Means that there can be a variable number of observations in this dimension.
     The observations are unordered.
     """
-    VARIABLE_SIZE = 4
 
 
 class ObservationType(Enum):
@@ -483,10 +481,15 @@ class ObservationType(Enum):
     of the agent.
     """
 
-    # Observation information is generic.
     DEFAULT = 0
-    # Observation contains goal information for current task.
+    """
+    Observation information is generic.
+    """
+
     GOAL_SIGNAL = 1
+    """
+    Observation contains goal information for current task.
+    """
 
 
 class ObservationSpec(NamedTuple):

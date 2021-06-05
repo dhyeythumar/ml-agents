@@ -12,7 +12,7 @@ from mlagents.trainers.exception import TrainerError
 
 logger = get_logger(__name__)
 
-STATUS_FORMAT_VERSION = "0.2.0"
+STATUS_FORMAT_VERSION = "0.3.0"
 
 
 class StatusType(Enum):
@@ -20,6 +20,7 @@ class StatusType(Enum):
     STATS_METADATA = "metadata"
     CHECKPOINTS = "checkpoints"
     FINAL_CHECKPOINT = "final_checkpoint"
+    ELO = "elo"
 
 
 @attr.s(auto_attribs=True)

@@ -385,8 +385,8 @@ class TorchSACOptimizer(TorchOptimizer):
             all_mean_q1 = mean_q1
         if self._action_spec.continuous_size > 0:
             cont_log_probs = log_probs.continuous_tensor
-            batch_policy_loss += torch.mean(
-                _cont_ent_coef * cont_log_probs - all_mean_q1.unsqueeze(1), dim=1
+            batch_policy_loss += (
+                _cont_ent_coef * torch.sum(cont_log_probs, dim=1) - all_mean_q1
             )
         policy_loss = ModelUtils.masked_mean(batch_policy_loss, loss_masks)
 
@@ -426,8 +426,8 @@ class TorchSACOptimizer(TorchOptimizer):
         if self._action_spec.continuous_size > 0:
             with torch.no_grad():
                 cont_log_probs = log_probs.continuous_tensor
-                target_current_diff = torch.sum(
-                    cont_log_probs + self.target_entropy.continuous, dim=1
+                target_current_diff = (
+                    torch.sum(cont_log_probs, dim=1) + self.target_entropy.continuous
                 )
             # We update all the _cont_ent_coef as one block
             entropy_loss += -1 * ModelUtils.masked_mean(
@@ -497,30 +497,17 @@ class TorchSACOptimizer(TorchOptimizer):
                 0, len(batch[BufferKey.CRITIC_MEMORY]), self.policy.sequence_length
             )
         ]
-        offset = 1 if self.policy.sequence_length > 1 else 0
-        next_value_memories_list = [
-            ModelUtils.list_to_tensor(
-                batch[BufferKey.CRITIC_MEMORY][i]
-            )  # only pass value part of memory to target network
-            for i in range(
-                offset, len(batch[BufferKey.CRITIC_MEMORY]), self.policy.sequence_length
-            )
-        ]
 
         if len(memories_list) > 0:
             memories = torch.stack(memories_list).unsqueeze(0)
             value_memories = torch.stack(value_memories_list).unsqueeze(0)
-            next_value_memories = torch.stack(next_value_memories_list).unsqueeze(0)
         else:
             memories = None
             value_memories = None
-            next_value_memories = None
 
         # Q and V network memories are 0'ed out, since we don't have them during inference.
         q_memories = (
-            torch.zeros_like(next_value_memories)
-            if next_value_memories is not None
-            else None
+            torch.zeros_like(value_memories) if value_memories is not None else None
         )
 
         # Copy normalizers from policy
@@ -568,6 +555,18 @@ class TorchSACOptimizer(TorchOptimizer):
             q1_stream, q2_stream = q1_out, q2_out
 
         with torch.no_grad():
+            # Since we didn't record the next value memories, evaluate one step in the critic to
+            # get them.
+            if value_memories is not None:
+                # Get the first observation in each sequence
+                just_first_obs = [
+                    _obs[:: self.policy.sequence_length] for _obs in current_obs
+                ]
+                _, next_value_memories = self._critic.critic_pass(
+                    just_first_obs, value_memories, sequence_length=1
+                )
+            else:
+                next_value_memories = None
             target_values, _ = self.target_network(
                 next_obs,
                 memories=next_value_memories,

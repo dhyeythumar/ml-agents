@@ -1,6 +1,5 @@
 using UnityEngine;
 using Unity.MLAgents;
-using Unity.Barracuda;
 using Unity.MLAgents.Actuators;
 using Unity.MLAgentsExamples;
 using Unity.MLAgents.Sensors;
@@ -95,7 +94,7 @@ public class CrawlerAgent : Agent
     /// <param name="pos"></param>
     void SpawnTarget(Transform prefab, Vector3 pos)
     {
-        m_Target = Instantiate(prefab, pos, Quaternion.identity, transform);
+        m_Target = Instantiate(prefab, pos, Quaternion.identity, transform.parent);
     }
 
     /// <summary>

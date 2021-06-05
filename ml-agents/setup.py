@@ -65,7 +65,7 @@ setup(
         "protobuf>=3.6",
         "pyyaml>=3.1.0",
         # Windows ver. of PyTorch doesn't work from PyPi. Installation:
-        # https://github.com/Unity-Technologies/ml-agents/blob/main/docs/Installation.md#windows-installing-pytorch
+        # https://github.com/Unity-Technologies/ml-agents/blob/release_17_docs/docs/Installation.md#windows-installing-pytorch
         # Torch only working on python 3.9 for 1.8.0 and above. Details see:
         # https://github.com/pytorch/pytorch/issues/50014
         "torch>=1.8.0,<1.9.0;(platform_system!='Windows' and python_version>='3.9')",
@@ -74,7 +74,7 @@ setup(
         # cattrs 1.1.0 dropped support for python 3.6, but 1.0.0 doesn't work for python 3.9
         # Since there's no version that supports both, we have to draw the line somwehere.
         "cattrs<1.1.0; python_version<'3.8'",
-        "cattrs>=1.1.0; python_version>='3.8'",
+        "cattrs>=1.1.0,<1.7; python_version>='3.8'",
         "attrs>=19.3.0",
         'pypiwin32==223;platform_system=="Windows"',
         "importlib_metadata; python_version<'3.8'",

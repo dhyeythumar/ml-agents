@@ -5,6 +5,7 @@ import tempfile
 import unittest
 import time
 
+
 from mlagents.trainers.stats import (
     StatsReporter,
     TensorboardWriter,
@@ -14,6 +15,8 @@ from mlagents.trainers.stats import (
     StatsPropertyType,
     StatsAggregationMethod,
 )
+
+from mlagents.trainers.env_manager import AgentManager
 
 
 def test_stat_reporter_add_summary_write():
@@ -31,6 +34,15 @@ def test_stat_reporter_add_summary_write():
     for i in range(10):
         statsreporter1.add_stat("key1", float(i))
         statsreporter2.add_stat("key2", float(i))
+
+    statsreportercalls = [
+        mock.call(f"category{j}", f"key{j}", float(i), StatsAggregationMethod.AVERAGE)
+        for i in range(10)
+        for j in [1, 2]
+    ]
+
+    mock_writer1.on_add_stat.assert_has_calls(statsreportercalls)
+    mock_writer2.on_add_stat.assert_has_calls(statsreportercalls)
 
     statssummary1 = statsreporter1.get_stats_summaries("key1")
     statssummary2 = statsreporter2.get_stats_summaries("key2")
@@ -98,6 +110,27 @@ def test_tensorboard_writer(mock_summary):
         assert mock_summary.return_value.add_text.call_count >= 1
 
 
+@pytest.mark.parametrize("aggregation_type", list(StatsAggregationMethod))
+def test_agent_manager_stats_report(aggregation_type):
+    stats_reporter = StatsReporter("recorder_name")
+    manager = AgentManager(None, "behaviorName", stats_reporter)
+
+    values = range(5)
+
+    env_stats = {"stat": [(i, aggregation_type) for i in values]}
+    manager.record_environment_stats(env_stats, 0)
+    summary = stats_reporter.get_stats_summaries("stat")
+    aggregation_result = {
+        StatsAggregationMethod.AVERAGE: sum(values) / len(values),
+        StatsAggregationMethod.MOST_RECENT: values[-1],
+        StatsAggregationMethod.SUM: sum(values),
+        StatsAggregationMethod.HISTOGRAM: sum(values) / len(values),
+    }
+
+    assert summary.aggregated_value == aggregation_result[aggregation_type]
+    stats_reporter.write_stats(0)
+
+
 def test_tensorboard_writer_clear(tmp_path):
     tb_writer = TensorboardWriter(tmp_path, clear_past_data=False)
     statssummary1 = StatsSummary(
@@ -118,6 +151,31 @@ def test_tensorboard_writer_clear(tmp_path):
     tb_writer = TensorboardWriter(tmp_path, clear_past_data=True)
     tb_writer.write_stats("category1", {"key1": statssummary1}, 10)
     assert len(os.listdir(os.path.join(tmp_path, "category1"))) == 1
+
+
+@mock.patch("mlagents.trainers.stats.SummaryWriter")
+def test_tensorboard_writer_hidden_keys(mock_summary):
+    # Test write_stats
+    category = "category1"
+    with tempfile.TemporaryDirectory(prefix="unittest-") as base_dir:
+        tb_writer = TensorboardWriter(
+            base_dir, clear_past_data=False, hidden_keys="hiddenKey"
+        )
+        statssummary1 = StatsSummary(
+            full_dist=[1.0], aggregation_method=StatsAggregationMethod.AVERAGE
+        )
+        tb_writer.write_stats("category1", {"hiddenKey": statssummary1}, 10)
+
+        # Test that the filewriter has been created and the directory has been created.
+        filewriter_dir = "{basedir}/{category}".format(
+            basedir=base_dir, category=category
+        )
+        assert os.path.exists(filewriter_dir)
+        mock_summary.assert_called_once_with(filewriter_dir)
+
+        # Test that the filewriter was not written to since we used the hidden key.
+        mock_summary.return_value.add_scalar.assert_not_called()
+        mock_summary.return_value.flush.assert_not_called()
 
 
 def test_gauge_stat_writer_sanitize():

@@ -22,7 +22,6 @@ namespace Unity.MLAgents.Policies
         NullList m_NullList = new NullList();
 
 
-        /// <inheritdoc />
         public HeuristicPolicy(ActuatorManager actuatorManager, ActionSpec actionSpec)
         {
             m_ActuatorManager = actuatorManager;
@@ -46,6 +45,7 @@ namespace Unity.MLAgents.Policies
         {
             if (!m_Done && m_DecisionRequested)
             {
+                m_ActionBuffers.Clear();
                 m_ActuatorManager.ApplyHeuristic(m_ActionBuffers);
             }
             m_DecisionRequested = false;

@@ -154,13 +154,15 @@ class RLTrainer(Trainer):
             logger.warning(
                 "Trainer has multiple policies, but default behavior only saves the first."
             )
-        checkpoint_path = self.model_saver.save_checkpoint(self.brain_name, self._step)
-        export_ext = "onnx"
+        export_path, auxillary_paths = self.model_saver.save_checkpoint(
+            self.brain_name, self._step
+        )
         new_checkpoint = ModelCheckpoint(
             int(self._step),
-            f"{checkpoint_path}.{export_ext}",
+            export_path,
             self._policy_mean_reward(),
             time.time(),
+            auxillary_file_paths=auxillary_paths,
         )
         ModelCheckpointManager.add_checkpoint(
             self.brain_name, new_checkpoint, self.trainer_settings.keep_checkpoints
@@ -209,6 +211,7 @@ class RLTrainer(Trainer):
         p = self.get_policy(name_behavior_id)
         if p:
             p.increment_step(n_steps)
+        self.stats_reporter.set_stat("Step", float(self.get_step))
 
     def _get_next_interval_step(self, interval: int) -> int:
         """
@@ -244,6 +247,21 @@ class RLTrainer(Trainer):
             self._next_summary_step = self._get_next_interval_step(self.summary_freq)
         if step_after_process >= self._next_summary_step and self.get_step != 0:
             self._write_summary(self._next_summary_step)
+
+    def _append_to_update_buffer(self, agentbuffer_trajectory: AgentBuffer) -> None:
+        """
+        Append an AgentBuffer to the update buffer. If the trainer isn't training,
+        don't update to avoid a memory leak.
+        """
+        if self.should_still_train:
+            seq_len = (
+                self.trainer_settings.network_settings.memory.sequence_length
+                if self.trainer_settings.network_settings.memory is not None
+                else 1
+            )
+            agentbuffer_trajectory.resequence_and_append(
+                self.update_buffer, training_length=seq_len
+            )
 
     def _maybe_save_model(self, step_after_process: int) -> None:
         """
@@ -298,5 +316,3 @@ class RLTrainer(Trainer):
                         for q in self.policy_queues:
                             # Get policies that correspond to the policy queue in question
                             q.put(self.get_policy(q.behavior_id))
-        else:
-            self._clear_update_buffer()

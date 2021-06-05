@@ -37,9 +37,9 @@
 
 ## Python Tutorial with Google Colab
 
-- [Using a UnityEnvironment](https://colab.research.google.com/drive/1Qg6E5kmf9n4G8rc5lXHIM_cQzMUFGH-g#forceEdit=true&sandboxMode=true)
-- [Q-Learning with a UnityEnvironment](https://colab.research.google.com/drive/1nkOztXzU91MHEbuQ1T9GnynYdL_LRsHG#forceEdit=true&sandboxMode=true)
-- [Using Side Channels on a UnityEnvironment](https://colab.research.google.com/drive/1-g7CwEpk9nJ7SgWXfoCUf8pSLUW1b48i#scrollTo=pbVXrmEsLXDt&forceEdit=true&sandboxMode=true)
+- [Using a UnityEnvironment](https://colab.research.google.com/github/Unity-Technologies/ml-agents/blob/main/colab/Colab_UnityEnvironment_1_Run.ipynb)
+- [Q-Learning with a UnityEnvironment](https://colab.research.google.com/github/Unity-Technologies/ml-agents/blob/main/colab/Colab_UnityEnvironment_2_Train.ipynb)
+- [Using Side Channels on a UnityEnvironment](https://colab.research.google.com/github/Unity-Technologies/ml-agents/blob/main/colab/Colab_UnityEnvironment_3_SideChannel.ipynb)
 
 ## Help
 
@@ -51,6 +51,7 @@
 ## API Docs
 
 - [API Reference](API-Reference.md)
+- [Python API Documentation](Python-API-Documentation.md)
 - [How to use the Python API](Python-API.md)
 - [How to use the Unity Environment Registry](Unity-Environment-Registry.md)
 - [Wrapping Learning Environment as a Gym (+Baselines/Dopamine Integration)](../gym-unity/README.md)

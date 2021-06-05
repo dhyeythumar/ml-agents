@@ -233,16 +233,19 @@ The `SensorComponent` abstract class is used to create the actual `ISensor` at
 runtime. It must be attached to the same `GameObject` as the `Agent`, or to a
 child `GameObject`.
 
-There are several SensorComponents provided in the API:
-- `CameraSensorComponent` - Allows image from `Camera` to be used as
-  observation.
-- `RenderTextureSensorComponent` - Allows content of `RenderTexture` to be used
-  as observation.
-- `RayPerceptionSensorComponent` - Allows information from set of ray-casts to
-  be used as observation.
+There are several SensorComponents provided in the API, including:
+- `CameraSensorComponent` - Uses images from a `Camera` as observations.
+- `RenderTextureSensorComponent` - Uses the content of a `RenderTexture` as
+observations.
+- `RayPerceptionSensorComponent` - Uses the information from set of ray casts
+as observations.
+- `Match3SensorComponent` - Uses the board of a [Match-3 game](Integrations-Match3.md)
+as observations.
+- `GridSensorComponent` - Uses a set of box queries in a grid shape as
+observations.
 
 **NOTE**: you do not need to adjust the Space Size in the Agent's
-`Behavior Parameters` when using an ISensor SensorComponents.
+`Behavior Parameters` when using `SensorComponents`s.
 
 Internally, both `Agent.CollectObservations` and `[Observable]` attribute use an
 ISensors to write observations, although this is mostly abstracted from the user.
@@ -367,9 +370,6 @@ The steps for enabling stacking depends on how you generate observations:
   Generally, this should happen in the `CreateSensor()` method of your
   `SensorComponent`.
 
-Note that stacking currently only supports for vector observations; stacking
-for visual observations is not supported.
-
 #### Vector Observation Summary & Best Practices
 
 - Vector Observations should include all variables relevant for allowing the
@@ -428,6 +428,10 @@ not they are grayscale). Additionally, each Sensor Component on an Agent must
 have a unique name so that they can be sorted deterministically (the name must
 be unique for that Agent, but multiple Agents can have a Sensor Component with
 the same name).
+
+Visual observations also support stacking, by specifying `Observation Stacks`
+to a value greater than 1. The visual observations from the last `stackSize`
+steps will be stacked on the last dimension (channel dimension).
 
 When using `RenderTexture` visual observations, a handy feature for debugging is
 adding a `Canvas`, then adding a `Raw Image` with it's texture set to the
@@ -516,6 +520,68 @@ setting the State Size.
 - Use as few rays and tags as necessary to solve the problem in order to improve
   learning stability and agent performance.
 
+### Grid Observations
+Grid-base observations combine the advantages of 2D spatial representation in
+visual observations, and the flexibility of defining detectable objects in
+RayCast observations. The sensor uses a set of box queries in a grid shape and
+gives a top-down 2D view around the agent. This can be implemented by adding a
+`GridSensorComponent` to the Agent GameObject.
+
+During observations, the sensor detects the presence of detectable objects in
+each cell and encode that into one-hot representation. The collected information
+from each cell forms a 3D tensor observation and will be fed into the
+convolutional neural network (CNN) of the agent policy just like visual
+observations.
+
+![Agent with GridSensorComponent](images/grid_sensor.png)
+
+The sensor component has the following settings:
+- _Cell Scale_ The scale of each cell in the grid.
+- _Grid Size_ Number of cells on each side of the grid.
+- _Agent Game Object_ The Agent that holds the grid sensor. This is used to
+  disambiguate objects with the same tag as the agent so that the agent doesn't
+  detect itself.
+- _Rotate With Agent_ Whether the grid rotates with the Agent.
+- _Detectable Tags_ A list of strings corresponding to the types of objects that
+  the Agent should be able to distinguish between.
+- _Collider Mask_ The [LayerMask](https://docs.unity3d.com/ScriptReference/LayerMask.html)
+  passed to the collider detection. This can be used to ignore certain types
+  of objects.
+- _Initial Collider Buffer Size_ The initial size of the Collider buffer used
+  in the non-allocating Physics calls for each cell.
+- _Max Collider Buffer Size_ The max size of the Collider buffer used in the
+  non-allocating Physics calls for each cell.
+
+The observation for each grid cell is a one-hot encoding of the detected object.
+The total size of the created observations is
+
+```
+GridSize.x * GridSize.z * Num Detectable Tags
+```
+
+so the number of detectable tags and size of the grid should be kept as small as
+possible to reduce the amount of data used. This makes a trade-off between the
+granularity of the observation and training speed.
+
+To allow more variety of observations that grid sensor can capture, the
+`GridSensorComponent` and the underlying `GridSensorBase` also provides interfaces
+that can be overridden to collect customized observation from detected objects.
+See the doc on
+[extending grid Sensors](https://github.com/Unity-Technologies/ml-agents/blob/release_17/com.unity.ml-agents.extensions/Documentation~/CustomGridSensors.md)
+for more details on custom grid sensors.
+
+__Note__: The `GridSensor` only works in 3D environments and will not behave
+properly in 2D environments.
+
+#### Grid Observation Summary & Best Practices
+
+- Attach `GridSensorComponent` to use.
+- This observation type is best used when there is relevant non-visual spatial information that
+  can be best captured in 2D representations.
+- Use as small grid size and as few tags as necessary to solve the problem in order to improve
+  learning stability and agent performance.
+- Do not use `GridSensor` in a 2D game.
+
 ### Variable Length Observations
 
 It is possible for agents to collect observations from a varying number of
@@ -551,7 +617,8 @@ The `BufferSensorComponent` Editor inspector has two arguments:
  the `BufferSensor` will be able to collect.
 
 To add an entity's observations to a `BufferSensorComponent`, you need
-to call `BufferSensorComponent.AppendObservation()`
+to call `BufferSensorComponent.AppendObservation()` in the
+Agent.CollectObservations() method
 with a float array of size `Observation Size` as argument.
 
 __Note__: Currently, the observations put into the `BufferSensor` are
@@ -560,7 +627,8 @@ between -1 and 1.
 
 #### Variable Length Observation Summary & Best Practices
  - Attach `BufferSensorComponent` to use.
- - Call `BufferSensorComponent.AppendObservation()` to add the observations
+ - Call `BufferSensorComponent.AppendObservation()` in the
+ Agent.CollectObservations() methodto add the observations
  of an entity to the `BufferSensor`.
  - Normalize the entities observations before feeding them into the `BufferSensor`.
 
@@ -587,6 +655,8 @@ weights of the policy using the goal observations as input. Note that using a
 HyperNetwork requires a lot of computations, it is recommended to use a smaller
 number of hidden units in the policy to alleviate this.
 If set to `none` the goal signal will be considered as regular observations.
+For an example on how to use a goal signal, see the
+[GridWorld example](Learning-Environment-Examples.md#gridworld).
 
 #### Goal Signal Summary & Best Practices
  - Attach a `VectorSensorComponent` or `CameraSensorComponent` to an agent and

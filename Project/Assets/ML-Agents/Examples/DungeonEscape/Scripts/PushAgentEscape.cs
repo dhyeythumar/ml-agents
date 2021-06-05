@@ -1,4 +1,3 @@
-using System.Collections;
 using UnityEngine;
 using Unity.MLAgents;
 using Unity.MLAgents.Sensors;
@@ -116,7 +115,6 @@ public class PushAgentEscape : Agent
     public override void Heuristic(in ActionBuffers actionsOut)
     {
         var discreteActionsOut = actionsOut.DiscreteActions;
-        discreteActionsOut[0] = 0;
         if (Input.GetKey(KeyCode.D))
         {
             discreteActionsOut[0] = 3;

@@ -23,20 +23,23 @@ class Normalizer(nn.Module):
         return normalized_state
 
     def update(self, vector_input: torch.Tensor) -> None:
-        steps_increment = vector_input.size()[0]
-        total_new_steps = self.normalization_steps + steps_increment
+        with torch.no_grad():
+            steps_increment = vector_input.size()[0]
+            total_new_steps = self.normalization_steps + steps_increment
 
-        input_to_old_mean = vector_input - self.running_mean
-        new_mean = self.running_mean + (input_to_old_mean / total_new_steps).sum(0)
+            input_to_old_mean = vector_input - self.running_mean
+            new_mean: torch.Tensor = self.running_mean + (
+                input_to_old_mean / total_new_steps
+            ).sum(0)
 
-        input_to_new_mean = vector_input - new_mean
-        new_variance = self.running_variance + (
-            input_to_new_mean * input_to_old_mean
-        ).sum(0)
-        # Update in-place
-        self.running_mean.data.copy_(new_mean.data)
-        self.running_variance.data.copy_(new_variance.data)
-        self.normalization_steps.data.copy_(total_new_steps.data)
+            input_to_new_mean = vector_input - new_mean
+            new_variance = self.running_variance + (
+                input_to_new_mean * input_to_old_mean
+            ).sum(0)
+            # Update references. This is much faster than in-place data update.
+            self.running_mean: torch.Tensor = new_mean
+            self.running_variance: torch.Tensor = new_variance
+            self.normalization_steps: torch.Tensor = total_new_steps
 
     def copy_from(self, other_normalizer: "Normalizer") -> None:
         self.normalization_steps.data.copy_(other_normalizer.normalization_steps.data)
@@ -106,6 +109,30 @@ class VectorInput(nn.Module):
     def update_normalization(self, inputs: torch.Tensor) -> None:
         if self.normalizer is not None:
             self.normalizer.update(inputs)
+
+
+class FullyConnectedVisualEncoder(nn.Module):
+    def __init__(
+        self, height: int, width: int, initial_channels: int, output_size: int
+    ):
+        super().__init__()
+        self.output_size = output_size
+        self.input_size = height * width * initial_channels
+        self.dense = nn.Sequential(
+            linear_layer(
+                self.input_size,
+                self.output_size,
+                kernel_init=Initialization.KaimingHeNormal,
+                kernel_gain=1.41,  # Use ReLU gain
+            ),
+            nn.LeakyReLU(),
+        )
+
+    def forward(self, visual_obs: torch.Tensor) -> torch.Tensor:
+        if not exporting_to_onnx.is_exporting():
+            visual_obs = visual_obs.permute([0, 3, 1, 2])
+        hidden = visual_obs.reshape(-1, self.input_size)
+        return self.dense(hidden)
 
 
 class SmallVisualEncoder(nn.Module):
@@ -254,8 +281,9 @@ class ResNetVisualEncoder(nn.Module):
                 layers.append(ResNetBlock(channel))
             last_channel = channel
         layers.append(Swish())
+        self.final_flat_size = n_channels[-1] * height * width
         self.dense = linear_layer(
-            n_channels[-1] * height * width,
+            self.final_flat_size,
             output_size,
             kernel_init=Initialization.KaimingHeNormal,
             kernel_gain=1.41,  # Use ReLU gain
@@ -265,7 +293,6 @@ class ResNetVisualEncoder(nn.Module):
     def forward(self, visual_obs: torch.Tensor) -> torch.Tensor:
         if not exporting_to_onnx.is_exporting():
             visual_obs = visual_obs.permute([0, 3, 1, 2])
-        batch_size = visual_obs.shape[0]
         hidden = self.sequential(visual_obs)
-        before_out = hidden.reshape(batch_size, -1)
+        before_out = hidden.reshape(-1, self.final_flat_size)
         return torch.relu(self.dense(before_out))

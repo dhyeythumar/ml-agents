@@ -105,7 +105,7 @@ public class FoodCollectorAgent : Agent
             dirToGo += transform.right * right;
             rotateDir = -transform.up * rotate;
 
-            var shootCommand = (int)discreteActions[0] > 0;
+            var shootCommand = discreteActions[0] > 0;
             if (shootCommand)
             {
                 m_Shoot = true;
@@ -192,9 +192,6 @@ public class FoodCollectorAgent : Agent
     public override void Heuristic(in ActionBuffers actionsOut)
     {
         var continuousActionsOut = actionsOut.ContinuousActions;
-        continuousActionsOut[0] = 0;
-        continuousActionsOut[1] = 0;
-        continuousActionsOut[2] = 0;
         if (Input.GetKey(KeyCode.D))
         {
             continuousActionsOut[2] = 1;
